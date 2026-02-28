@@ -177,7 +177,7 @@
 
 <script>
 const $=s=>document.querySelector(s),$$=s=>document.querySelectorAll(s);
-let Y=2025,M=12,V='rpt',D={},CH={};
+let Y=new Date().getFullYear(),M=new Date().getMonth()+1,V='rpt',D={},CH={};
 const SK='sinchon_v5',AK='sinchon_api',GK='sinchon_gemini',BK='sinchon_bank';
 let BNK={};
 function init(){
@@ -207,6 +207,25 @@ function init(){
     12:{revenue:19687108,commission:3937422,netRevenue:15749686,foodCost:7070888,foodDetail:{entree:6743428,side:260460,oil:67000},rent:3937422,utilities:132000,hongPay:0,staff:S,totalSalary:8020000,insurance:INS,totalInsurance:505710,laborCost:8358410,tax:TAX,totalTax:220090}
   };
   for(let m in pre)if(!D['2025'][m])D['2025'][m]=pre[m];
+  // 2026년 1월 초기화
+  if(!D['2026'])D['2026']={};
+  const S26_1=[
+    {name:'길호정',salary:2640870,type:'4대보험',ded:0,net:2640870},
+    {name:'송성례',salary:2546260,type:'4대보험',ded:0,net:2546260},
+    {name:'정의송',salary:2097180,type:'일당',ded:0,net:2097180},
+    {name:'한미애',salary:356760,type:'일당',ded:0,net:356760}
+  ];
+  const pre26={
+    1:{revenue:18390800,commission:3678161,netRevenue:14712639,
+       foodCost:5560988,foodItems:[{l:'엔푸드',v:4457686},{l:'우삼겹&식자재',v:184870},{l:'식용유',v:42500},{l:'동원식자재',v:875932}],
+       foodDetail:{entree:4457686,side:184870,oil:42500},
+       rent:3678161,utilities:132000,hongPay:0,
+       staff:S26_1,totalSalary:7641070,
+       insItems:[],totalInsurance:0,
+       laborCost:7641070,
+       taxItems2:[],taxItems:[],totalTax:0}
+  };
+  for(let m in pre26)if(!D['2026'][m])D['2026'][m]=pre26[m];
   // 모든 월 데이터 재계산 (laborCost = 차인지급액 + 4대보험 + 세금)
   for(let yr in D){for(let mo in D[yr]){
     var dd=D[yr][mo];if(!dd)continue;
