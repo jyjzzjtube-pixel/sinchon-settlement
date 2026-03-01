@@ -147,6 +147,7 @@
     <button class="sb" onclick="expJSON()">💾 백업 (JSON)</button>
     <button class="sb" onclick="document.getElementById('impF').click()">📂 복원 (JSON)</button>
     <button class="sb" onclick="showApi()">🔑 API 키</button>
+    <button class="sb" style="border-color:var(--red);color:var(--red)" onclick="resetAllData()">🗑 전체 초기화</button>
     <input type="file" id="impF" accept=".json" style="display:none" onchange="impJSON(event)">
     <div id="gdStatus" style="font-size:9px;color:var(--text3);text-align:center;padding:2px;font-family:var(--mono)"></div>
   </div>
@@ -1484,6 +1485,15 @@ async function geminiOCR(b64,mt,prompt){
   if(!r.ok){const e=await r.json().catch(()=>({}));console.error('[OCR] Gemini 에러:',e);throw new Error(e.error?.message||'Gemini 오류 '+r.status)}
   const data=await r.json();const txt=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
   console.log('[OCR] Gemini 응답:',txt.substring(0,200));return txt;
+}
+// 비밀번호 보호 전체 초기화
+function resetAllData(){
+  const pw=prompt('전체 초기화를 위해 비밀번호를 입력하세요:');
+  if(pw===null)return;
+  if(pw!=='0729'){toast('⚠️ 비밀번호가 틀렸습니다');return}
+  if(!confirm('모든 정산 데이터를 초기화하시겠습니까?\n이 작업은 되돌릴 수 없습니다.'))return;
+  try{localStorage.removeItem(SK);localStorage.removeItem(BK);localStorage.removeItem(AK);localStorage.removeItem(GK);localStorage.removeItem('gd_token');localStorage.removeItem('gd_token_exp');localStorage.removeItem('gd_last_save')}catch(e){console.warn('초기화 오류:',e)}
+  D={};BNK={};toast('🗑 전체 초기화 완료');setTimeout(()=>location.reload(),500);
 }
 function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500)}
 
