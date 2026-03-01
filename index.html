@@ -137,7 +137,7 @@
 <body>
 <div class="app">
 <div class="sidebar">
-  <div class="s-logo"><h1>신촌점 정산관리</h1><p>현대백화점 · 원윌앤코</p></div>
+  <div class="s-logo"><h1>신촌점 정산관리</h1><p>현대백화점 · 원윌앤코 · v5.2</p></div>
   <div class="s-year"><button onclick="chgY(-1)">◂</button><span id="yL">2025</span><button onclick="chgY(1)">▸</button></div>
   <div class="m-list" id="mL"></div>
   <div class="s-bot">
@@ -179,16 +179,15 @@
 <script>
 const $=s=>document.querySelector(s),$$=s=>document.querySelectorAll(s);
 let Y=new Date().getFullYear(),M=new Date().getMonth()+1,V='rpt',D={},CH={};
+const APP_VER='v5.2';
 const SK='sinchon_v5',AK='sinchon_api',GK='sinchon_gemini',BK='sinchon_bank';
 let BNK={};
 function init(){
-  // API 키 자동 설정 (localStorage에 없으면 기본값 세팅)
-  if(!localStorage.getItem(GK))localStorage.setItem(GK,'AIzaSyDyVjF8xDEsZNJk3_TTaWPj6bzluiiY3To');
-  // API key removed for security - user must set via UI
+  // API 키는 사용자가 설정 UI를 통해 직접 입력해야 합니다
   try{BNK=JSON.parse(localStorage.getItem(BK))||{}}catch(e){BNK={}}
-  // 계좌정보 강제 세팅
-  const defBnk={'이채영':{bank:'우리은행',acct:'001-21-0174-858'},'임명자':{bank:'농협',acct:'356-0906-5354-83'},'서지희':{bank:'신한',acct:'110-58775-1268'},'서현경':{bank:'국민',acct:'814301-04-064842'},'정혜빈':{bank:'우리은행',acct:'119-04-972102-601'},'정의송':{bank:'',acct:''},'길호정':{bank:'농협',acct:'302-1204-0117-61'}};
-  for(const nm in defBnk){BNK[nm]=defBnk[nm]}
+  // 계좌정보: 사용자가 직접 입력 (기존 데이터 없으면 빈 기본값)
+  const defBnk={'이채영':{bank:'',acct:''},'임명자':{bank:'',acct:''},'서지희':{bank:'',acct:''},'서현경':{bank:'',acct:''},'정혜빈':{bank:'',acct:''},'정의송':{bank:'',acct:''},'길호정':{bank:'',acct:''}};
+  for(const nm in defBnk){if(!BNK[nm])BNK[nm]=defBnk[nm]}
   svB();
   try{D=JSON.parse(localStorage.getItem(SK))||{}}catch(e){D={}}
   if(!D['2025'])D['2025']={};
@@ -249,7 +248,7 @@ function rM(){const yd=D[Y]||{};let h='';for(let m=1;m<=12;m++){const has=!!yd[m
 function sM(m){M=m;rM();rV()}
 function chgY(d){Y+=d;rM();rV()}
 function sw(v,b){V=v;$$('.vt').forEach(t=>t.classList.remove('act'));if(b)b.classList.add('act');rV()}
-function rV(){$('#tT').innerHTML=`<span>${M}</span>월 정산`;Object.values(CH).forEach(c=>c.destroy());CH={};if(V==='rpt')rRpt();else if(V==='labor')rLab();else if(V==='trend')rTrd();else rInp()}
+function rV(){$('#tT').innerHTML=`<span>${M}</span>월 정산`;Object.values(CH).forEach(c=>{try{c.destroy()}catch(e){}});CH={};if(V==='rpt')rRpt();else if(V==='labor')rLab();else if(V==='trend')rTrd();else rInp()}
 
 // ═══ REPORT 요약본 ═══
 function rRpt(){const d=(D[Y]||{})[M];if(!d){$('#ct').innerHTML=`<div class="empty"><div class="ei">📋</div><p>${M}월 데이터 없음</p></div>`;return}
@@ -473,13 +472,28 @@ function rLab(){
   setupDZ('dz-acct',function(f){universalOCR([f],'acct')},function(fs){universalOCR(fs,'acct')});
 }
 
-// 드래그&드롭 (다중파일 지원)
+// 파일 타입 검증 (이미지, PDF만 허용)
+const ALLOWED_TYPES=['image/png','image/jpeg','image/jpg','image/gif','image/webp','image/bmp','image/tiff','application/pdf'];
+const ALLOWED_EXTS=['.png','.jpg','.jpeg','.gif','.webp','.bmp','.tiff','.tif','.pdf'];
+function validateFileType(file){
+  if(ALLOWED_TYPES.includes(file.type))return true;
+  var ext='.'+file.name.split('.').pop().toLowerCase();
+  if(ALLOWED_EXTS.includes(ext))return true;
+  return false;
+}
+function filterValidFiles(files){
+  var valid=files.filter(validateFileType);
+  if(valid.length<files.length)toast('⚠️ 지원하지 않는 파일 형식 제외 ('+(files.length-valid.length)+'개)');
+  return valid;
+}
+// 드래그&드롭 (다중파일 지원 + 파일타입 검증)
 function setupDZ(id,handler,multiHandler){
   var el=$('#'+id);if(!el)return;
   el.addEventListener('dragover',function(e){e.preventDefault();el.style.outline='2px dashed var(--accent)';el.style.outlineOffset='-2px'});
   el.addEventListener('dragleave',function(){el.style.outline='none'});
   el.addEventListener('drop',function(e){e.preventDefault();el.style.outline='none';
-    var files=Array.from(e.dataTransfer.files||[]);
+    var files=filterValidFiles(Array.from(e.dataTransfer.files||[]));
+    if(files.length===0)return;
     if(files.length>1&&multiHandler){multiHandler(files)}
     else if(files.length===1)handler(files[0]);
   });
@@ -647,7 +661,14 @@ function hSecOCR(e,sec){
   e.target.value='';
 }
 // ═══ 통합 OCR: 어떤 버튼에서든 N개 파일 → 자동분류 → 자동적용 ═══
+var _ocrLock=false;
 async function universalOCR(files,originSec){
+  // 동시 실행 방지 (race condition fix)
+  if(_ocrLock){toast('⚠️ 이전 OCR 처리 중...');return}
+  _ocrLock=true;
+  try{ return await _universalOCRInner(files,originSec) }finally{ _ocrLock=false }
+}
+async function _universalOCRInner(files,originSec){
   // 표시할 영역 결정
   var secId=originSec||'tax';
   var resEl=$('#'+secId+'Res');
@@ -1157,7 +1178,8 @@ function rInp(){const d=(D[Y]||{})[M]||{};const staff=d.staff||[{name:'',salary:
   // Drag & drop
   ['ocrInv','ocrLab2'].forEach(id=>{const el=$('#'+id);el.addEventListener('dragover',e=>{e.preventDefault();el.classList.add('drag')});el.addEventListener('dragleave',()=>el.classList.remove('drag'));
     el.addEventListener('drop',e=>{e.preventDefault();el.classList.remove('drag');
-      var files=Array.from(e.dataTransfer.files||[]);
+      var files=filterValidFiles(Array.from(e.dataTransfer.files||[]));
+      if(files.length===0)return;
       if(id==='ocrInv'&&files[0])procInv(files[0]);
       else if(id==='ocrLab2'){
         if(files.length>1){hLabOCRMulti2(files)}
@@ -1470,7 +1492,7 @@ function capImg(){const t=$('#capA')||$('#ct');toast('📸...');html2canvas(t,{b
 function capPDF(){const t=$('#capA')||$('#ct');toast('📄...');html2canvas(t,{backgroundColor:'#f5f3ef',scale:2,useCORS:true}).then(c=>{const{jsPDF}=window.jspdf;const w=210,h=c.height*w/c.width;const p=new jsPDF({unit:'mm',format:[w,Math.max(h,297)]});p.addImage(c.toDataURL(),'PNG',0,0,w,h);p.save(`신촌점_${Y}년${M}월.pdf`);toast('📄 저장')})}
 function expXLSX(){const yd=D[Y]||{},rows=[['월','총매출','수수료','지급액','식재료','인건비','임대료','홍순우','기장료','세금','총지출','수익','수익률']];for(let m=1;m<=12;m++){if(!yd[m])continue;const c=comp(yd[m]);rows.push([m+'월',c.r,c.c,c.n,c.f,c.l,c.rn,c.h,c.u,c.t,c.e,c.p,(c.rt*100).toFixed(2)+'%'])}
   const ws=XLSX.utils.aoa_to_sheet(rows),wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,Y+'년');XLSX.writeFile(wb,`신촌점_${Y}년.xlsx`);toast('📊 저장')}
-function expJSON(){const b=new Blob([JSON.stringify({data:D,bank:BNK},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`백업_${new Date().toISOString().slice(0,10)}.json`;a.click();toast('💾 백업')}
+function expJSON(){const b=new Blob([JSON.stringify({version:APP_VER,data:D,bank:BNK,savedAt:new Date().toISOString()},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`백업_${new Date().toISOString().slice(0,10)}.json`;a.click();toast('💾 백업')}
 function impJSON(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{try{const j=JSON.parse(ev.target.result);if(j.data)D=j.data;else D=j;if(j.bank)BNK=j.bank;sv();svB();rM();rV();toast('📂 복원')}catch(err){toast('⚠️ 오류')}};r.readAsText(f);e.target.value=''}
 function showApi(){$('#apiMo').classList.add('show');$('#apiIn').value=localStorage.getItem(AK)||'';$('#gemIn').value=localStorage.getItem(GK)||''}
 function hideApi(){$('#apiMo').classList.remove('show')}
@@ -1486,11 +1508,19 @@ async function geminiOCR(b64,mt,prompt){
   const data=await r.json();const txt=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
   console.log('[OCR] Gemini 응답:',txt.substring(0,200));return txt;
 }
+// SHA-256 해시 함수
+async function sha256(str){
+  const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+// 비밀번호 해시 (SHA-256 of '0729')
+const PW_HASH='878f96264ece1c85973dfa3b39dec9a7dc4cf6f08168ff5a183389a36b1bb9d0';
 // 비밀번호 보호 전체 초기화
-function resetAllData(){
+async function resetAllData(){
   const pw=prompt('전체 초기화를 위해 비밀번호를 입력하세요:');
   if(pw===null)return;
-  if(pw!=='0729'){toast('⚠️ 비밀번호가 틀렸습니다');return}
+  const hash=await sha256(pw);
+  if(hash!==PW_HASH){toast('⚠️ 비밀번호가 틀렸습니다');return}
   if(!confirm('모든 정산 데이터를 초기화하시겠습니까?\n이 작업은 되돌릴 수 없습니다.'))return;
   try{localStorage.removeItem(SK);localStorage.removeItem(BK);localStorage.removeItem(AK);localStorage.removeItem(GK);localStorage.removeItem('gd_token');localStorage.removeItem('gd_token_exp');localStorage.removeItem('gd_last_save')}catch(e){console.warn('초기화 오류:',e)}
   D={};BNK={};toast('🗑 전체 초기화 완료');setTimeout(()=>location.reload(),500);
@@ -1550,7 +1580,7 @@ async function gDriveSave(){
   toast('☁️ 구글드라이브 저장 중...');
   try{
     const token=await gAuth();
-    const backup=JSON.stringify({data:D,bank:BNK,savedAt:new Date().toISOString()},null,2);
+    const backup=JSON.stringify({version:APP_VER,data:D,bank:BNK,savedAt:new Date().toISOString()},null,2);
     const existing=await gFindFile(token);
     
     if(existing){
