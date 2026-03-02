@@ -132,6 +132,58 @@
 .ka{width:100%;min-height:140px;padding:14px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12px;line-height:1.8;resize:none;white-space:pre}
 .toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--accent);color:#fff;padding:12px 28px;border-radius:12px;font-size:13px;font-weight:700;z-index:999;transition:transform .3s;pointer-events:none;box-shadow:0 4px 16px rgba(13,138,106,.3)}.toast.show{transform:translateX(-50%) translateY(0)}
 .empty{text-align:center;padding:80px 20px;color:var(--text3)}.empty .ei{font-size:48px;margin-bottom:16px;opacity:.4}
+
+/* ═══ MOBILE HAMBURGER ═══ */
+.mob-menu{display:none;width:40px;height:40px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--text2);font-size:20px;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0;z-index:200}
+.mob-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:150}
+
+/* ═══ MOBILE RESPONSIVE ═══ */
+@media(max-width:768px){
+  .mob-menu{display:flex}
+  .app{flex-direction:column;height:auto;min-height:100vh}
+  .sidebar{position:fixed;left:-280px;top:0;bottom:0;width:260px;z-index:200;transition:left .3s ease;box-shadow:4px 0 20px rgba(0,0,0,.15)}
+  .sidebar.open{left:0}
+  .mob-overlay.open{display:block}
+  .main{width:100%;overflow-x:hidden}
+  .top{height:auto;min-height:50px;padding:10px 12px;flex-wrap:wrap;gap:8px}
+  .top-t{font-size:14px;flex:1;min-width:0}
+  .top-r{width:100%;overflow-x:auto;gap:8px;flex-wrap:wrap}
+  .vtabs{flex-shrink:0}
+  .vt{padding:6px 10px;font-size:11px;white-space:nowrap}
+  .tb{height:30px;padding:0 10px;font-size:10px}
+  .ct{padding:12px}
+  /* Report */
+  .rpt-h{padding:16px}
+  .rpt-h h2{font-size:15px}
+  .rpt-b{padding:16px}
+  .rr{flex-direction:column;align-items:flex-start;gap:4px;padding:8px 0}
+  .rr.hl{margin:4px -8px;padding:10px 8px}
+  .rv.big{font-size:17px}
+  .pbox-v{font-size:22px}
+  /* Trend */
+  .tg{grid-template-columns:repeat(2,1fr);gap:10px}
+  .sc{padding:14px}
+  .sc-v{font-size:16px}
+  .cha{height:200px}.chs{height:160px}
+  .cb{padding:14px}
+  /* Input */
+  .inp-lay{grid-template-columns:1fr;gap:14px}
+  .fc{padding:14px}
+  .fr{flex-direction:column;align-items:stretch;gap:6px}
+  .fi{width:100%}
+  .stf-row{flex-direction:column;gap:6px}
+  .stf-i.nm,.stf-i.sal,.stf-i.ded,.stf-i.res{width:100%}
+  /* Tables */
+  .ltbl,.itbl,.stbl table,.atbl{font-size:11px}
+  .ltbl th,.ltbl td,.itbl th,.itbl td,.stbl th,.stbl td,.atbl th,.atbl td{padding:6px 8px;font-size:11px}
+  /* Modal */
+  .md-c{width:95%;margin:10px;max-height:90vh}
+}
+@media(max-width:480px){
+  .tg{grid-template-columns:1fr}
+  .top-r>div{width:100%;display:flex;gap:4px}
+  .tb{flex:1}
+}
 </style>
 </head>
 <body>
@@ -152,8 +204,10 @@
     <div id="gdStatus" style="font-size:9px;color:var(--text3);text-align:center;padding:2px;font-family:var(--mono)"></div>
   </div>
 </div>
+<div class="mob-overlay" id="mobOv" onclick="toggleSidebar()"></div>
 <div class="main">
   <div class="top">
+    <button class="mob-menu" onclick="toggleSidebar()">☰</button>
     <div class="top-t" id="tT"><span>12</span>월 정산</div>
     <div class="top-r">
       <div class="vtabs">
@@ -1665,6 +1719,12 @@ window.addEventListener('beforeunload',()=>{sv();svB()});
   s.async=true;s.defer=true;
   document.head.appendChild(s);
 })();
+
+// ═══ MOBILE SIDEBAR TOGGLE ═══
+function toggleSidebar(){
+  document.querySelector('.sidebar').classList.toggle('open');
+  document.getElementById('mobOv').classList.toggle('open');
+}
 
 init();
 // 시작 시 마지막 저장 시간 표시
