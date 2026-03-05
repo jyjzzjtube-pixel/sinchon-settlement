@@ -870,6 +870,149 @@ function normalizePDFText(text){
   t=t.replace(/\s{2,}/g,' ');
   return t;
 }
+// ═══ 급여대장/사업소득/급여명세서 PDF 텍스트 직접 파싱 (API 불필요) ═══
+function parsePayrollPDF(norm,raw){
+  if(!norm)return null;
+  var pn=function(s){return parseInt(String(s).replace(/[,\s]/g,''))||0};
+  // ── (A) 사업소득지급대장 ──
+  if(norm.includes('사업소득지급대장')||norm.includes('사업소득지급명세')){
+    console.log('[PayrollPDF] 사업소득 감지');
+    var staff=[],taxI1=0,taxLoc=0,totalNet=0;
+    // 패턴: NO 코드 성명 귀속년월 지급액 소득세 지급년월 지방소득세 차인지급액
+    // pdf.js 추출 시 행이 섞일 수 있으므로 유연한 패턴 사용
+    // 이름 뒤에 2026.XX 지급액 소득세 2026.XX 지방소득세 (고용보험?) (산재?) 차인지급액
+    var lines=norm.split(/\n/);var allText=norm.replace(/\n/g,' ');
+    // 총계 행에서 합계 추출
+    var totM=allText.match(/총\s*계\s*([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)/);
+    if(totM){
+      var totPay=pn(totM[1]),totTax1=pn(totM[2]),totTaxLoc=pn(totM[3]),totNetPay=pn(totM[4]);
+      taxI1=totTax1;taxLoc=totTaxLoc;totalNet=totNetPay;
+    }
+    // 개별 직원 추출: "이름 2026.XX 금액 세금 2026.XX 지방세 차인지급액" 패턴
+    var empRe=/([\uAC00-\uD7AF]{2,4})\s+\d{4}\.\d{2}\s+([\d,]+)\s+([\d,]+)\s+\d{4}\.\d{2}\s+([\d,]+)\s*([\d,]*)\s*([\d,]*)/g;
+    var em;
+    while((em=empRe.exec(allText))!==null){
+      var eName=em[1],ePay=pn(em[2]),eTax=pn(em[3]),eLocTax=pn(em[4]);
+      // 나머지 필드에서 차인지급액 찾기 (마지막 큰 숫자)
+      var remaining=[pn(em[5]),pn(em[6])].filter(function(v){return v>0});
+      var eNet=remaining.length>0?remaining[remaining.length-1]:(ePay-eTax-eLocTax);
+      var eDed=eTax+eLocTax;
+      staff.push({name:eName,salary:ePay,type:'3.3%',ded:eDed,net:eNet});
+    }
+    if(staff.length===0&&totM){
+      // 총계만 있고 개별 직원 파싱 실패 시 → 총계로 단일 항목
+      staff.push({name:'사업소득합계',salary:totPay,type:'3.3%',ded:totTax1+totTaxLoc,net:totNetPay});
+    }
+    if(staff.length>0){
+      return {docType:'freelance',staff:staff,tax:{i1:taxI1,i2:0,loc:taxLoc,total:taxI1+taxLoc},laborTotal:totalNet};
+    }
+  }
+  // ── (B) 급여대장 (직원 여러명 테이블) ──
+  if(norm.includes('급여대장')&&!norm.includes('급여명세서')){
+    console.log('[PayrollPDF] 급여대장 감지');
+    var staff=[],tHealth=0,tEmploy=0,tLong=0,tIncTax=0,tLocTax=0,tYearInc=0,tYearLoc=0;
+    // 합계 행 파싱: "합계(N명)" 다음에 숫자들
+    var allText=norm.replace(/\n/g,' ');
+    // 개별 직원: "사원번호 이름 기본급 식대 (국민연금?) 건강보험 고용보험 장기요양 소득세 지방소득세"
+    // 두 번째 줄: "입사일 연말정산소득세 연말정산지방소득세 (연말정산농특세?) (건강보험정산?) 공제합계"
+    // 세 번째 줄: "지급합계 차인지급액"
+    // 유연한 패턴: 이름(한글2~4) 다음 연속 숫자들
+    var nameRe=/([\uAC00-\uD7AF]{2,4})\s+([\d,]+)\s+([\d,]+)/g;
+    var names=[],nm;
+    while((nm=nameRe.exec(allText))!==null){
+      var n=nm[1];
+      // "합계", "주식회사", "정렬" 등 제외
+      if(n==='합계'||n.includes('주식')|| n.includes('회사')||n==='정렬'||n==='코드순'||n==='인적사항'||n==='지급합계'||n==='차인지급액')continue;
+      if(names.indexOf(n)===-1)names.push(n);
+    }
+    // 각 직원별로 데이터 추출
+    names.forEach(function(name){
+      // 이름 뒤의 모든 숫자 추출 (음수 포함)
+      var nameIdx=allText.indexOf(name);
+      if(nameIdx<0)return;
+      var after=allText.substring(nameIdx+name.length,nameIdx+name.length+600);
+      var nums=[];var numRe=/-?[\d,]+/g;var num;
+      while((num=numRe.exec(after))!==null){
+        var v=pn(num[0].replace(/-/,''));if(num[0].startsWith('-'))v=-v;
+        if(Math.abs(v)>0)nums.push(v);
+        if(nums.length>=15)break;
+      }
+      // 급여대장 표준 순서: 기본급, 식대, (국민연금?), 건강보험, 고용보험, 장기요양, 소득세, 지방소득세
+      // 다음줄: 연말정산소득세, 연말정산지방소득세, (농특세?), (건강보험정산?), 공제합계
+      // 다음줄: 지급합계, 차인지급액
+      if(nums.length>=8){
+        var basic=nums[0],meal=nums[1];
+        var salary=basic+meal;
+        // 건강보험부터 찾기 (5자리~6자리 양수)
+        var healthIdx=-1;
+        for(var k=2;k<nums.length;k++){if(nums[k]>10000&&nums[k]<500000){healthIdx=k;break}}
+        if(healthIdx<0)healthIdx=2;
+        var health=nums[healthIdx]||0,employ=nums[healthIdx+1]||0,longCare=nums[healthIdx+2]||0;
+        var incTax=nums[healthIdx+3]||0,locTax=nums[healthIdx+4]||0;
+        // 연말정산 (음수일 수 있음)
+        var yearInc=0,yearLoc=0;
+        for(var k=healthIdx+5;k<nums.length-2;k++){
+          if(nums[k]<0){if(yearInc===0)yearInc=nums[k];else if(yearLoc===0)yearLoc=nums[k]}
+        }
+        var dedTotal=health+employ+longCare+incTax+locTax+yearInc+yearLoc;
+        // 마지막 두 숫자: 지급합계, 차인지급액
+        var totalPay=0,netPay=0;
+        for(var k=nums.length-1;k>=0;k--){
+          if(nums[k]>salary*0.5){
+            if(netPay===0)netPay=nums[k];
+            else if(totalPay===0){totalPay=nums[k];break}
+          }
+        }
+        if(totalPay===0)totalPay=salary;
+        if(netPay===0)netPay=totalPay-dedTotal;
+        staff.push({name:name,salary:totalPay,type:'4대보험',ded:dedTotal,net:netPay});
+        tHealth+=health;tEmploy+=employ;tLong+=longCare;
+        tIncTax+=incTax;tLocTax+=locTax;tYearInc+=yearInc;tYearLoc+=yearLoc;
+      }
+    });
+    if(staff.length>0){
+      var totalInsurance=tHealth+tEmploy+tLong;
+      var totalTax=tIncTax+tLocTax+tYearInc+tYearLoc;
+      var totalNetPay=staff.reduce(function(a,s){return a+s.net},0);
+      return {
+        docType:'payroll',
+        staff:staff,
+        insurance:{health:tHealth,employ:tEmploy,injury:tLong,total:totalInsurance},
+        tax:{i1:tIncTax+tYearInc,i2:0,loc:tLocTax+tYearLoc,total:totalTax},
+        laborTotal:totalNetPay
+      };
+    }
+  }
+  // ── (C) 급여명세서 (개인 1명) ──
+  if(norm.includes('급여명세서')){
+    console.log('[PayrollPDF] 급여명세서 감지');
+    var allText=norm.replace(/\n/g,' ');
+    // 사원명 추출
+    var nameM=allText.match(/사원\s*명\s*[:\s]?\s*([\uAC00-\uD7AF]{2,4})/);
+    var empName=nameM?nameM[1]:'직원';
+    // 항목별 금액 추출
+    var get=function(label){var re=new RegExp(label+'\\s*[:\\s]?\\s*(-?[\\d,]+)');var m=allText.match(re);return m?pn(m[1]):0};
+    var basic=get('기본급'),meal=get('식대');
+    var health=get('건강보험'),employ=get('고용보험'),longCare=get('장기요양보험료');
+    var incTax=get('소득세'),locTax=get('지방소득세');
+    var yearInc=get('연말정산소득세'),yearLoc=get('연말정산지방소득세');
+    var totalPay=get('지급액계')||(basic+meal);
+    var netPay=get('차인지급액');
+    var dedTotal=get('공제액계')||(health+employ+longCare+incTax+locTax+yearInc+yearLoc);
+    if(!netPay)netPay=totalPay-dedTotal;
+    if(totalPay>0){
+      return {
+        docType:'payroll',
+        staff:[{name:empName,salary:totalPay,type:'4대보험',ded:dedTotal,net:netPay}],
+        insurance:{health:health,employ:employ,injury:longCare,total:health+employ+longCare},
+        tax:{i1:incTax+yearInc,i2:0,loc:locTax+yearLoc,total:incTax+locTax+yearInc+yearLoc},
+        laborTotal:netPay
+      };
+    }
+  }
+  return null;
+}
+
 // 납부서 텍스트에서 세금 항목 직접 파싱 (API 불필요, 100% 정확)
 function parseTaxFromText(text){
   if(!text)return null;
@@ -1018,6 +1161,12 @@ async function smartProcessFile(file){
         if(localItems.length>0)result.localTax={label:localItems[0].l,amount:localItems[0].v};
         return result;
       }
+    }
+    // 급여대장/급여명세서/사업소득 PDF 텍스트 직접 파싱
+    var payrollResult=parsePayrollPDF(norm,pdfText);
+    if(payrollResult){
+      console.log('[SMART] '+fname+' → '+payrollResult.docType+' (PDF텍스트)',JSON.stringify(payrollResult).substring(0,200));
+      return payrollResult;
     }
   }
   // ② PDF 텍스트 추출 실패/비세금 → AI OCR (Gemini/Claude)
