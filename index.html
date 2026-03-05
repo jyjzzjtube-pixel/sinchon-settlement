@@ -408,7 +408,7 @@ function rRpt(){const d=(D[Y]||{})[M];if(!d){$('#ct').innerHTML=`<div class="emp
 // ═══ LABOR ═══
 function rLab(){
   if(!D[Y])D[Y]={};
-  if(!D[Y][M])D[Y][M]=initM?initM():{};
+  if(!D[Y][M])D[Y][M]={};
   const d=D[Y][M];
   const staff=d.staff||[];
   const tS=staff.reduce((a,s)=>a+(s.salary||0),0);
@@ -744,7 +744,7 @@ async function _universalOCRInner(files,originSec){
   }
   if(results.length===0){if(bodyEl)bodyEl.innerHTML='<div style="color:var(--red)">인식 실패 - 다시 시도하세요</div>';return}
   // docType별 자동 적용
-  if(!D[Y])D[Y]={};if(!D[Y][M])D[Y][M]=initM?initM():{};
+  if(!D[Y])D[Y]={};if(!D[Y][M])D[Y][M]={};
   var d=D[Y][M];
   var appliedTypes=[];
   // upsert 헬퍼: 기존 배열에 항목 추가/업데이트 (같은 라벨이면 값 업데이트, 없으면 추가)
