@@ -851,24 +851,24 @@ async function extractPDFText(file){
   }catch(e){console.warn('[PDF Text] extract fail:',e.message);return ''}
 }
 
-// PDF 텍스트 정규화 (글자 사이 공백 제거 — 국세청 PDF 양식 대응)
+// PDF 텍스트 정규화 (한글 글자 사이 공백 제거 — 국세청 PDF 양식 대응)
+// ★ 숫자 공백 제거는 여기서 안함 (다른 숫자가 합쳐지는 것을 방지)
+//   → 필요한 곳(parseTaxFromText)에서 별도 적용
 function normalizePDFText(text){
   if(!text)return '';
   var t=text;
-  // 1) 한글 글자 사이 단일/다중 공백 제거: "근 로 소 득 세" → "근로소득세"
-  var prev='';while(prev!==t){prev=t;t=t.replace(/([\uAC00-\uD7AF])\s+([\uAC00-\uD7AF])/g,'$1$2')}
-  // 2) 숫자 사이 공백 제거: "3   9   ,   6   9   0" → "39,690"
-  prev='';while(prev!==t){prev=t;t=t.replace(/(\d)\s+(\d)/g,'$1$2')}
-  // 3) 숫자-콤마 공백: "39 , 690" → "39,690"
-  t=t.replace(/(\d)\s*,\s*(\d)/g,'$1,$2');
-  // 4) 괄호 안 공백: "( 갑 )" → "(갑)"
-  t=t.replace(/\(\s+/g,'(').replace(/\s+\)/g,')');
-  // 5) 한글-괄호 사이 공백: "소득세 (갑)" → "소득세(갑)"
-  t=t.replace(/([\uAC00-\uD7AF])\s+\(/g,'$1(');
-  // 6) 슬래시 공백: "교육 / 방위세" → "교육/방위세"
-  t=t.replace(/\s*\/\s*/g,'/');
-  // 7) 연속 공백 → 단일 공백
-  t=t.replace(/\s{2,}/g,' ');
+  // 1) 한글 글자 사이 공백 제거 (같은 줄 내에서만): "근 로 소 득 세" → "근로소득세"
+  var prev='';while(prev!==t){prev=t;t=t.replace(/([\uAC00-\uD7AF])[^\S\n]+([\uAC00-\uD7AF])/g,'$1$2')}
+  // 2) 숫자-콤마 공백: "39 , 690" → "39,690"
+  t=t.replace(/(\d)[^\S\n]*,[^\S\n]*(\d)/g,'$1,$2');
+  // 3) 괄호 안 공백: "( 갑 )" → "(갑)"
+  t=t.replace(/\([^\S\n]+/g,'(').replace(/[^\S\n]+\)/g,')');
+  // 4) 한글-괄호 사이 공백: "소득세 (갑)" → "소득세(갑)"
+  t=t.replace(/([\uAC00-\uD7AF])[^\S\n]+\(/g,'$1(');
+  // 5) 슬래시 공백: "교육 / 방위세" → "교육/방위세"
+  t=t.replace(/[^\S\n]*\/[^\S\n]*/g,'/');
+  // 6) 같은 줄 내 연속 공백 → 단일 공백 (줄바꿈 유지)
+  t=t.replace(/[^\S\n]{2,}/g,' ');
   return t;
 }
 // ═══ 급여대장/사업소득/급여명세서 PDF 텍스트 직접 파싱 (API 불필요) ═══
@@ -891,12 +891,11 @@ function parsePayrollPDF(norm,raw){
     }
     // 개별 직원 추출 - 여러 패턴 시도
     // 패턴1: 이름 날짜 금액 세금 날짜 지방세 차인지급액
-    var empRe=/([\uAC00-\uD7AF]{2,4})\s+\d{4}\.\d{2}\s+([\d,]+)\s+([\d,]+)\s+\d{4}\.\d{2}\s+([\d,]+)\s*([\d,]*)\s*([\d,]*)/g;
+    var empRe=/([\uAC00-\uD7AF]{2,4})\s+\d{4}\.\d{2}\s+([\d,]+)\s+([\d,]+)\s+\d{4}\.\d{2}\s+([\d,]+)\s+([\d,]+)/g;
     var em;
     while((em=empRe.exec(allText))!==null){
-      var eName=em[1],ePay=pn(em[2]),eTax=pn(em[3]),eLocTax=pn(em[4]);
-      var remaining=[pn(em[5]),pn(em[6])].filter(function(v){return v>0});
-      var eNet=remaining.length>0?remaining[remaining.length-1]:(ePay-eTax-eLocTax);
+      var eName=em[1],ePay=pn(em[2]),eTax=pn(em[3]),eLocTax=pn(em[4]),eNet=pn(em[5]);
+      if(eNet===0)eNet=ePay-eTax-eLocTax;
       staff.push({name:eName,salary:ePay,type:'3.3%',ded:eTax+eLocTax,net:eNet});
     }
     // 패턴2: 이름 주민번호 금액 세금 지방세 차인지급액
@@ -957,6 +956,14 @@ function parsePayrollPDF(norm,raw){
       var nameIdx=allText.indexOf(name);
       if(nameIdx<0)return;
       var after=allText.substring(nameIdx+name.length,nameIdx+name.length+600);
+      // ★ 합계/소계 경계에서 자르기 (다음 섹션 숫자 오염 방지)
+      var cutOff=after.length;
+      ['합계','소계'].forEach(function(kw){var idx=after.indexOf(kw);if(idx>0&&idx<cutOff)cutOff=idx});
+      // 다음 직원 이름에서도 자르기
+      names.forEach(function(other){if(other!==name){var idx=after.indexOf(other);if(idx>0&&idx<cutOff)cutOff=idx}});
+      after=after.substring(0,cutOff);
+      // ★ 날짜 패턴 제거 (숫자 파싱 오염 방지: "2025-08-12" → "-8", "-12")
+      after=after.replace(/\d{4}-\d{2}-\d{2}/g,' ').replace(/\d{4}\.\d{2}\.\d{2}/g,' ');
       var nums=[];var numRe=/-?[\d,]+/g;var num;
       while((num=numRe.exec(after))!==null){
         var v=pn(num[0].replace(/-/,''));if(num[0].startsWith('-'))v=-v;
@@ -1014,8 +1021,9 @@ function parsePayrollPDF(norm,raw){
     console.log('[PayrollPDF] 급여명세서 감지');
     var allText=norm.replace(/\n/g,' ');
     console.log('[PayrollPDF] 급여명세서 allText(500):',allText.substring(0,500));
-    // 사원명/성명 추출
-    var nameM=allText.match(/(?:사원\s*명|성\s*명)\s*[:\s]?\s*([\uAC00-\uD7AF]{2,4})/);
+    // 사원명/성명 추출 (생년월일 등 뒤이은 한글이 이름에 포함되지 않도록 처리)
+    var nameM=allText.match(/(?:사원\s*명|성\s*명)\s*[:\s]?\s*([\uAC00-\uD7AF]{2,4}?)(?=생년|주민|부서|직급|\d|\s|$)/);
+    if(!nameM) nameM=allText.match(/(?:사원\s*명|성\s*명)\s*[:\s]?\s*([\uAC00-\uD7AF]{2,3})/);
     var empName=nameM?nameM[1]:'직원';
     // 항목별 금액 추출
     var get=function(label){var re=new RegExp(label+'\\s*[:\\s]?\\s*(-?[\\d,]+)');var m=allText.match(re);return m?pn(m[1]):0};
@@ -1046,6 +1054,8 @@ function parseTaxFromText(text){
   if(!text)return null;
   // PDF 텍스트 정규화 (글자 사이 공백 제거)
   var norm=normalizePDFText(text);
+  // 국세청 양식: 숫자 사이 공백 추가 제거 ("1 0 5 , 0 0 0" → "105,000")
+  var prev='';while(prev!==norm){prev=norm;norm=norm.replace(/(\d)[^\S\n]+(\d)/g,'$1$2')}
   console.log('[Tax Parse] Normalized:',norm.substring(0,300));
   var items=[];
   // 세목별 납부금액 패턴 (국세청 납부서 양식)
