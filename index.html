@@ -876,56 +876,81 @@ function parsePayrollPDF(norm,raw){
   if(!norm)return null;
   var pn=function(s){return parseInt(String(s).replace(/[,\s]/g,''))||0};
   // ── (A) 사업소득지급대장 ──
-  if(norm.includes('사업소득지급대장')||norm.includes('사업소득지급명세')){
+  if(norm.includes('사업소득지급대장')||norm.includes('사업소득지급명세')||norm.includes('사업소득')){
     console.log('[PayrollPDF] 사업소득 감지');
     var staff=[],taxI1=0,taxLoc=0,totalNet=0;
-    // 패턴: NO 코드 성명 귀속년월 지급액 소득세 지급년월 지방소득세 차인지급액
-    // pdf.js 추출 시 행이 섞일 수 있으므로 유연한 패턴 사용
-    // 이름 뒤에 2026.XX 지급액 소득세 2026.XX 지방소득세 (고용보험?) (산재?) 차인지급액
-    var lines=norm.split(/\n/);var allText=norm.replace(/\n/g,' ');
-    // 총계 행에서 합계 추출
+    var allText=norm.replace(/\n/g,' ');
+    console.log('[PayrollPDF] 사업소득 allText(500):',allText.substring(0,500));
+    // 총계 행에서 합계 추출 - 더 유연한 패턴
     var totM=allText.match(/총\s*계\s*([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)/);
+    if(!totM) totM=allText.match(/합\s*계\s*([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)/);
+    console.log('[PayrollPDF] 사업소득 총계매칭:',totM?'YES':'NO');
     if(totM){
       var totPay=pn(totM[1]),totTax1=pn(totM[2]),totTaxLoc=pn(totM[3]),totNetPay=pn(totM[4]);
       taxI1=totTax1;taxLoc=totTaxLoc;totalNet=totNetPay;
     }
-    // 개별 직원 추출: "이름 2026.XX 금액 세금 2026.XX 지방세 차인지급액" 패턴
+    // 개별 직원 추출 - 여러 패턴 시도
+    // 패턴1: 이름 날짜 금액 세금 날짜 지방세 차인지급액
     var empRe=/([\uAC00-\uD7AF]{2,4})\s+\d{4}\.\d{2}\s+([\d,]+)\s+([\d,]+)\s+\d{4}\.\d{2}\s+([\d,]+)\s*([\d,]*)\s*([\d,]*)/g;
     var em;
     while((em=empRe.exec(allText))!==null){
       var eName=em[1],ePay=pn(em[2]),eTax=pn(em[3]),eLocTax=pn(em[4]);
-      // 나머지 필드에서 차인지급액 찾기 (마지막 큰 숫자)
       var remaining=[pn(em[5]),pn(em[6])].filter(function(v){return v>0});
       var eNet=remaining.length>0?remaining[remaining.length-1]:(ePay-eTax-eLocTax);
-      var eDed=eTax+eLocTax;
-      staff.push({name:eName,salary:ePay,type:'3.3%',ded:eDed,net:eNet});
+      staff.push({name:eName,salary:ePay,type:'3.3%',ded:eTax+eLocTax,net:eNet});
+    }
+    // 패턴2: 이름 주민번호 금액 세금 지방세 차인지급액
+    if(staff.length===0){
+      var empRe2=/([\uAC00-\uD7AF]{2,4})\s+\d{6}-?\d{1,7}\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)/g;
+      while((em=empRe2.exec(allText))!==null){
+        var eName=em[1],ePay=pn(em[2]),eTax=pn(em[3]),eLocTax=pn(em[4]),eNet=pn(em[5]);
+        staff.push({name:eName,salary:ePay,type:'3.3%',ded:eTax+eLocTax,net:eNet});
+      }
+    }
+    // 패턴3: 이름 다음에 큰 숫자들 (가장 유연)
+    if(staff.length===0){
+      var nameRe3=/([\uAC00-\uD7AF]{2,4})/g;var nm3;var foundNames=[];
+      while((nm3=nameRe3.exec(allText))!==null){
+        var n3=nm3[1];
+        if('총계합계소계사업소득지급대장명세서귀속년월지급일성명주민등록번호코드'.includes(n3))continue;
+        if(foundNames.indexOf(n3)===-1)foundNames.push(n3);
+      }
+      console.log('[PayrollPDF] 사업소득 이름후보:',foundNames.join(','));
+      // 총계에서 전체 숫자 추출
+      var allNums=allText.match(/[\d,]{4,}/g);
+      console.log('[PayrollPDF] 사업소득 숫자들:',allNums?allNums.join(' '):'없음');
     }
     if(staff.length===0&&totM){
-      // 총계만 있고 개별 직원 파싱 실패 시 → 총계로 단일 항목
       staff.push({name:'사업소득합계',salary:totPay,type:'3.3%',ded:totTax1+totTaxLoc,net:totNetPay});
     }
+    // 총계도 없으면 allText에서 직접 큰 숫자들 추출
+    if(staff.length===0){
+      var bigNums=(allText.match(/[\d,]{5,}/g)||[]).map(function(s){return pn(s)}).filter(function(v){return v>=100000});
+      console.log('[PayrollPDF] 사업소득 큰숫자들:',bigNums.join(','));
+      if(bigNums.length>=3){
+        var maxVal=Math.max.apply(null,bigNums);
+        staff.push({name:'사업소득합계',salary:maxVal,type:'3.3%',ded:0,net:maxVal});
+        totalNet=maxVal;
+      }
+    }
     if(staff.length>0){
-      return {docType:'freelance',staff:staff,tax:{i1:taxI1,i2:0,loc:taxLoc,total:taxI1+taxLoc},laborTotal:totalNet};
+      return {docType:'freelance',staff:staff,tax:{i1:taxI1,i2:0,loc:taxLoc,total:taxI1+taxLoc},laborTotal:totalNet||staff.reduce(function(a,s){return a+s.net},0)};
     }
   }
   // ── (B) 급여대장 (직원 여러명 테이블) ──
   if(norm.includes('급여대장')&&!norm.includes('급여명세서')){
     console.log('[PayrollPDF] 급여대장 감지');
     var staff=[],tHealth=0,tEmploy=0,tLong=0,tIncTax=0,tLocTax=0,tYearInc=0,tYearLoc=0;
-    // 합계 행 파싱: "합계(N명)" 다음에 숫자들
     var allText=norm.replace(/\n/g,' ');
-    // 개별 직원: "사원번호 이름 기본급 식대 (국민연금?) 건강보험 고용보험 장기요양 소득세 지방소득세"
-    // 두 번째 줄: "입사일 연말정산소득세 연말정산지방소득세 (연말정산농특세?) (건강보험정산?) 공제합계"
-    // 세 번째 줄: "지급합계 차인지급액"
-    // 유연한 패턴: 이름(한글2~4) 다음 연속 숫자들
+    console.log('[PayrollPDF] 급여대장 allText(500):',allText.substring(0,500));
     var nameRe=/([\uAC00-\uD7AF]{2,4})\s+([\d,]+)\s+([\d,]+)/g;
     var names=[],nm;
     while((nm=nameRe.exec(allText))!==null){
       var n=nm[1];
-      // "합계", "주식회사", "정렬" 등 제외
-      if(n==='합계'||n.includes('주식')|| n.includes('회사')||n==='정렬'||n==='코드순'||n==='인적사항'||n==='지급합계'||n==='차인지급액')continue;
+      if(n==='합계'||n.includes('주식')|| n.includes('회사')||n==='정렬'||n==='코드순'||n==='인적사항'||n==='지급합계'||n==='차인지급액'||n==='기본급'||n==='급여대장'||n==='건강보험'||n==='고용보험'||n==='장기요양'||n==='소득세'||n==='지방세')continue;
       if(names.indexOf(n)===-1)names.push(n);
     }
+    console.log('[PayrollPDF] 급여대장 이름추출:',names.join(','),'('+names.length+'명)');
     // 각 직원별로 데이터 추출
     names.forEach(function(name){
       // 이름 뒤의 모든 숫자 추출 (음수 포함)
@@ -988,6 +1013,7 @@ function parsePayrollPDF(norm,raw){
   if(norm.includes('급여명세서')){
     console.log('[PayrollPDF] 급여명세서 감지');
     var allText=norm.replace(/\n/g,' ');
+    console.log('[PayrollPDF] 급여명세서 allText(500):',allText.substring(0,500));
     // 사원명/성명 추출
     var nameM=allText.match(/(?:사원\s*명|성\s*명)\s*[:\s]?\s*([\uAC00-\uD7AF]{2,4})/);
     var empName=nameM?nameM[1]:'직원';
@@ -1001,6 +1027,7 @@ function parsePayrollPDF(norm,raw){
     var netPay=get('차인지급액');
     var dedTotal=get('공제액계')||(health+employ+longCare+incTax+locTax+yearInc+yearLoc);
     if(!netPay)netPay=totalPay-dedTotal;
+    console.log('[PayrollPDF] 급여명세서 파싱결과:',JSON.stringify({name:empName,basic:basic,meal:meal,health:health,employ:employ,longCare:longCare,incTax:incTax,locTax:locTax,yearInc:yearInc,yearLoc:yearLoc,totalPay:totalPay,netPay:netPay}));
     if(totalPay>0){
       return {
         docType:'payroll',
@@ -1142,6 +1169,13 @@ async function smartProcessFile(file){
   var pdfText=await extractPDFText(file);
   if(pdfText&&pdfText.trim().length>50){
     var norm=normalizePDFText(pdfText);
+    console.log('[SMART] '+fname+' norm텍스트(200):',norm.substring(0,200));
+    // ★ 급여대장/급여명세서/사업소득을 먼저 체크 (세금 파서보다 우선)
+    var payrollResult=parsePayrollPDF(norm,pdfText);
+    if(payrollResult){
+      console.log('[SMART] '+fname+' → '+payrollResult.docType+' (PDF텍스트)',JSON.stringify(payrollResult).substring(0,300));
+      return payrollResult;
+    }
     // 세금 납부서인지 확인
     var taxResult=parseTaxFromText(pdfText);
     if(taxResult&&taxResult.items.length>0){
@@ -1162,12 +1196,6 @@ async function smartProcessFile(file){
         if(localItems.length>0)result.localTax={label:localItems[0].l,amount:localItems[0].v};
         return result;
       }
-    }
-    // 급여대장/급여명세서/사업소득 PDF 텍스트 직접 파싱
-    var payrollResult=parsePayrollPDF(norm,pdfText);
-    if(payrollResult){
-      console.log('[SMART] '+fname+' → '+payrollResult.docType+' (PDF텍스트)',JSON.stringify(payrollResult).substring(0,200));
-      return payrollResult;
     }
   }
   // ② PDF 텍스트 추출 실패/비세금 → AI OCR (Gemini/Claude)
