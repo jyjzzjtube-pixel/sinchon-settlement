@@ -407,8 +407,9 @@ function rRpt(){const d=(D[Y]||{})[M];if(!d){$('#ct').innerHTML=`<div class="emp
 
 // ═══ LABOR ═══
 function rLab(){
-  const d=(D[Y]||{})[M];
-  if(!d){$('#ct').innerHTML='<div class="empty"><div class="ei">👥</div><p>'+M+'월 데이터 없음</p></div>';return}
+  if(!D[Y])D[Y]={};
+  if(!D[Y][M])D[Y][M]=initM?initM():{};
+  const d=D[Y][M];
   const staff=d.staff||[];
   const tS=staff.reduce((a,s)=>a+(s.salary||0),0);
   const tD=staff.reduce((a,s)=>a+(s.ded||0),0);
