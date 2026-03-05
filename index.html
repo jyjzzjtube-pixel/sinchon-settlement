@@ -890,8 +890,8 @@ function parsePayrollPDF(norm,raw){
       taxI1=totTax1;taxLoc=totTaxLoc;totalNet=totNetPay;
     }
     // 개별 직원 추출 - 여러 패턴 시도
-    // 패턴1: 이름 날짜 금액 세금 날짜 지방세 차인지급액
-    var empRe=/([\uAC00-\uD7AF]{2,4})\s+\d{4}\.\d{2}\s+([\d,]+)\s+([\d,]+)\s+\d{4}\.\d{2}\s+([\d,]+)\s+([\d,]+)/g;
+    // 패턴1: 이름 (주민번호?) 날짜 금액 세금 날짜 지방세 차인지급액
+    var empRe=/([\uAC00-\uD7AF]{2,4})\s+(?:\d{6}-?\d?\*+\s+)?\d{4}\.\d{2}\s+([\d,]+)\s+([\d,]+)\s+\d{4}\.\d{2}\s+([\d,]+)\s+([\d,]+)/g;
     var em;
     while((em=empRe.exec(allText))!==null){
       var eName=em[1],ePay=pn(em[2]),eTax=pn(em[3]),eLocTax=pn(em[4]),eNet=pn(em[5]);
