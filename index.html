@@ -988,13 +988,13 @@ function parsePayrollPDF(norm,raw){
   if(norm.includes('급여명세서')){
     console.log('[PayrollPDF] 급여명세서 감지');
     var allText=norm.replace(/\n/g,' ');
-    // 사원명 추출
-    var nameM=allText.match(/사원\s*명\s*[:\s]?\s*([\uAC00-\uD7AF]{2,4})/);
+    // 사원명/성명 추출
+    var nameM=allText.match(/(?:사원\s*명|성\s*명)\s*[:\s]?\s*([\uAC00-\uD7AF]{2,4})/);
     var empName=nameM?nameM[1]:'직원';
     // 항목별 금액 추출
     var get=function(label){var re=new RegExp(label+'\\s*[:\\s]?\\s*(-?[\\d,]+)');var m=allText.match(re);return m?pn(m[1]):0};
     var basic=get('기본급'),meal=get('식대');
-    var health=get('건강보험'),employ=get('고용보험'),longCare=get('장기요양보험료');
+    var health=get('건강보험'),employ=get('고용보험'),longCare=get('장기요양보험료')||get('장기요양');
     var incTax=get('소득세'),locTax=get('지방소득세');
     var yearInc=get('연말정산소득세'),yearLoc=get('연말정산지방소득세');
     var totalPay=get('지급액계')||(basic+meal);
