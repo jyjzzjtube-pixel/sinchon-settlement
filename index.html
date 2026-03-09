@@ -627,9 +627,18 @@ function resetMonth(){
 function updTaxPay(key,val){
   var d=D[Y]?.[M];if(!d)return;
   if(!d.taxPay)d.taxPay={};
-  if(key==='natAmt'||key==='locAmt'){d.taxPay[key]=parseInt(String(val).replace(/[^0-9\-]/g,''))||0}
+  if(key==='natAmt'||key==='locAmt'){
+    var v=parseInt(String(val).replace(/[^0-9\-]/g,''))||0;
+    d.taxPay[key]=v;
+    // ★ 세금 항목(③)에도 동기화 → ④ 인건비 총합 자동 반영
+    if(!d.taxItems2)d.taxItems2=[];
+    if(key==='natAmt'){upsertItem(d.taxItems2,'소득세',v)}
+    else{upsertItem(d.taxItems2,'지방세',v)}
+    d.taxItems=JSON.parse(JSON.stringify(d.taxItems2));syncTaxObj(d);
+    recalcAll(d);
+  }
   else{d.taxPay[key]=val}
-  sv();rLab();
+  sv();rM();rLab();
 }
 function copyTaxPayKakao(){
   var d=D[Y]?.[M];if(!d)return;
@@ -960,6 +969,14 @@ function recalcAll(d){
   if(d.foodItems)d.foodCost=d.foodItems.reduce(function(a,it){return a+(parseInt(it.v)||0)},0);
 }
 
+// ★ upsert 헬퍼 (전역): 배열에서 같은 라벨 → 값 갱신, 없으면 추가
+function upsertItem(arr,label,val){
+  var found=false;
+  for(var k=0;k<arr.length;k++){if(arr[k].l===label){arr[k].v=val;found=true;break}}
+  if(!found)arr.push({l:label,v:val});
+  return arr;
+}
+
 // 섹션별 OCR (다중파일 지원)
 var secOcrD={};
 function hSecOCR(e,sec){
@@ -999,13 +1016,7 @@ async function _universalOCRInner(files,originSec){
   if(!D[Y])D[Y]={};if(!D[Y][M])D[Y][M]={};
   var d=D[Y][M];
   var appliedTypes=[];
-  // upsert 헬퍼: 기존 배열에 항목 추가/업데이트 (같은 라벨이면 값 업데이트, 없으면 추가)
-  function upsertItem(arr,label,val){
-    var found=false;
-    for(var k=0;k<arr.length;k++){if(arr[k].l===label){arr[k].v=val;found=true;break}}
-    if(!found)arr.push({l:label,v:val});
-    return arr;
-  }
+  // upsertItem은 전역 함수 사용
   // upsert 헬퍼: 직원 (같은 이름이면 업데이트, 없으면 추가)
   function upsertStaff(arr,newS){
     var found=false;
@@ -1028,12 +1039,21 @@ async function _universalOCRInner(files,originSec){
       }
       // 납부서에서 계좌번호 추출된 경우
       if(r.data.account)d.taxPay.natAcct=r.data.account;
+      // ★ 세금 항목(③)에도 동기화 → ④ 인건비 총합에 자동 반영
+      if(!d.taxItems2)d.taxItems2=[];
+      upsertItem(d.taxItems2,'소득세',natAmt);
+      if(r.data.localTax){upsertItem(d.taxItems2,'지방세',parseInt(r.data.localTax.amount)||0)}
+      d.taxItems=JSON.parse(JSON.stringify(d.taxItems2));syncTaxObj(d);
       appliedTypes.push('소득세 납부서');
     }else if(dt==='local_tax'){
       // ★ 지방세 납부서 → ⑥ 세금 납부서(taxPay)로 라우팅
       if(!d.taxPay)d.taxPay={};
       d.taxPay.locAmt=parseInt(r.data.amount)||0;
       if(r.data.account)d.taxPay.locAcct=r.data.account;
+      // ★ 세금 항목(③)에도 동기화 → ④ 인건비 총합에 자동 반영
+      if(!d.taxItems2)d.taxItems2=[];
+      upsertItem(d.taxItems2,'지방세',d.taxPay.locAmt);
+      d.taxItems=JSON.parse(JSON.stringify(d.taxItems2));syncTaxObj(d);
       appliedTypes.push('지방세 납부서');
     }else if(dt==='payroll'||dt==='freelance'){
       // 급여대장 → 직원+보험+세금 APPEND (upsert)
@@ -1070,11 +1090,10 @@ async function _universalOCRInner(files,originSec){
       appliedTypes.push('4대보험');
     }
   });
-  // 화면 갱신 (어떤 뷰에서든)
+  // 화면 갱신 (현재 활성 뷰만 재렌더링)
   recalcAll(d);sv();rM();
-  try{rLab()}catch(e){}
-  try{rInp()}catch(e){}
-  // 결과 표시 — rLab/rInp이 DOM 재생성하므로 요소 다시 획득
+  rV();
+  // 결과 표시 — rV()가 DOM 재생성하므로 요소 다시 획득
   resEl=$('#'+secId+'Res');bodyEl=$('#'+secId+'Body');
   if(resEl)resEl.classList.add('show');
   var oh='';
@@ -1466,7 +1485,7 @@ function apSecOCR(sec){
   else if(sec==='acct'&&od.accounts){
     od.accounts.forEach(function(a){if(a.name)BNK[a.name]={bank:a.bank||'',acct:a.acct||''}});svB()
   }
-  recalcAll(d);sv();rM();rLab();toast('✅ 적용')
+  recalcAll(d);sv();rM();rV();toast('✅ 적용')
 }
 
 // ═══ 통합 스마트 OCR 시스템 ═══
@@ -1646,7 +1665,7 @@ function apLabOCR(){if(!labD)return;if(!D[Y])D[Y]={};if(!D[Y][M])D[Y][M]={};var 
   }else if(dt==='insurance'){
     if(labD.items){d.insItems=labD.items;syncInsObj(d)}
   }
-  recalcAll(d);sv();rM();rLab();toast('✅ '+docTypeLabel(dt)+' 적용')
+  recalcAll(d);sv();rM();rV();toast('✅ '+docTypeLabel(dt)+' 적용')
 }
 
 // 세금 복사/카톡/엑셀
