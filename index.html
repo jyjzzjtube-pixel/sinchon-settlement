@@ -1925,16 +1925,16 @@ async function fileToBase64All(file){
 }
 
 // 스마트 OCR 프롬프트 (급여대장/소득세/지방세/기타소득/4대보험 자동 식별)
-const SMART_PROMPT=`급여/세금 관련 문서를 자동 식별하고 분석. JSON만 반환.
+const SMART_PROMPT=`이 이미지는 사업자의 회계 소프트웨어에 업로드된 급여/세금 관련 문서입니다. 문서 유형을 식별하고 데이터를 추출하세요. JSON만 반환.
 
 [A] 급여대장 (직원별 급여 테이블: 성명,기본급,식대,건강보험,고용보험,산재보험,소득세,지방소득세,공제합계,급여합계,차인지급액):
 {"docType":"payroll","staff":[{"name":"성명","salary":급여합계,"type":"4대보험","ded":공제합계,"net":차인지급액}],"insurance":{"health":건강보험합계,"employ":고용보험합계,"injury":산재보험합계,"total":합계},"tax":{"i1":소득세합계,"loc":지방소득세합계,"total":합계},"laborTotal":차인지급합계}
 
 [B] 소득세 납부서 (국세청 고지서, 납부금액 있음. 여러장이면 각각):
-{"docType":"income_tax","items":[{"label":"근로소득세(갑)","amount":39690}],"total":납부합계}
+{"docType":"income_tax","items":[{"label":"근로소득세(갑)","amount":39690}],"total":납부합계,"account":"은행명 가상계좌번호"}
 
-[C] 지방세 납부서 (지방소득세 특별징수):
-{"docType":"local_tax","amount":납부금액,"label":"지방소득세(특별징수)"}
+[C] 지방세 납부서 (지방소득세 특별징수, 납부금액과 가상계좌/전자납부번호 포함):
+{"docType":"local_tax","amount":납부금액,"label":"지방소득세(특별징수)","account":"NH 가상계좌번호 또는 전자납부번호"}
 
 [D] 기타소득 원천징수 (3.3% 프리랜서: 성명,지급액,소득세,지방소득세,차인지급액):
 {"docType":"freelance","staff":[{"name":"성명","salary":지급액,"type":"3.3%","ded":소득세+지방소득세,"net":차인지급액}],"tax":{"i1":소득세합계,"loc":지방소득세합계,"total":합계},"laborTotal":차인지급합계}
@@ -1942,7 +1942,7 @@ const SMART_PROMPT=`급여/세금 관련 문서를 자동 식별하고 분석. J
 [E] 4대보험 고지서:
 {"docType":"insurance","items":[{"l":"건강보험","v":금액}],"total":합계}
 
-주의: 숫자는 콤마없는 정수. 이름/급여/보험/세금 반드시 인식. 여러페이지면 모두 분석.`;
+주의: 숫자는 콤마없는 정수. 이름/급여/보험/세금 반드시 인식. 여러페이지면 모두 분석. 가상계좌번호가 있으면 반드시 account 필드에 포함.`;
 
 // 문서유형 라벨
 function docTypeLabel(t){return{payroll:'급여대장',income_tax:'소득세 납부서',local_tax:'지방세 납부서',freelance:'기타소득',insurance:'4대보험'}[t]||'문서'}
@@ -2097,7 +2097,16 @@ async function geminiOCR(b64,mt,prompt){
   console.log('[OCR] Gemini API 호출...');
   const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+gk,{
     method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({contents:[{parts:[{inline_data:{mime_type:mt,data:b64}},{text:prompt}]}]})});
+    body:JSON.stringify({
+      contents:[{parts:[{inline_data:{mime_type:mt,data:b64}},{text:prompt}]}],
+      safetySettings:[
+        {category:'HARM_CATEGORY_HARASSMENT',threshold:'BLOCK_NONE'},
+        {category:'HARM_CATEGORY_HATE_SPEECH',threshold:'BLOCK_NONE'},
+        {category:'HARM_CATEGORY_SEXUALLY_EXPLICIT',threshold:'BLOCK_NONE'},
+        {category:'HARM_CATEGORY_DANGEROUS_CONTENT',threshold:'BLOCK_NONE'}
+      ],
+      generationConfig:{temperature:0.1,maxOutputTokens:2000}
+    })});
   if(!r.ok){const e=await r.json().catch(()=>({}));console.error('[OCR] Gemini 에러:',e);throw new Error(e.error?.message||'Gemini 오류 '+r.status)}
   const data=await r.json();const txt=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
   console.log('[OCR] Gemini 응답:',txt.substring(0,200));return txt;
