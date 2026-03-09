@@ -991,7 +991,7 @@ async function _universalOCRInner(files,originSec){
         results.push({file:files[i].name,data:parsed});
         console.log('[UNIVERSAL] '+files[i].name+' → '+(parsed.docType||'unknown'));
       }
-    }catch(err){console.warn('[OCR] '+files[i].name+' error:',err.message)}
+    }catch(err){console.warn('[OCR] '+files[i].name+' error:',err.message,err.stack);results.push({file:files[i].name,data:{docType:'error',message:err.message}})}
   }
   if(results.length===0){if(bodyEl)bodyEl.innerHTML='<div style="color:var(--red)">인식 실패 - 다시 시도하세요</div>';return}
   // docType별 자동 적용
@@ -1016,22 +1016,24 @@ async function _universalOCRInner(files,originSec){
   results.forEach(function(r){
     var dt=r.data.docType;
     if(dt==='income_tax'){
-      // 기존 세금 항목에 추가 (upsert)
-      var existing=d.taxItems2||d.taxItems||[];
-      (r.data.items||[]).forEach(function(it){
-        upsertItem(existing,it.label||'소득세',parseInt(it.amount)||0);
-      });
+      // ★ 납부서 → ⑥ 세금 납부서(taxPay)로 라우팅 (직접 입금 항목)
+      if(!d.taxPay)d.taxPay={};
+      var natAmt=0;
+      (r.data.items||[]).forEach(function(it){natAmt+=parseInt(it.amount)||0});
+      d.taxPay.natAmt=natAmt;
       if(r.data.localTax){
-        upsertItem(existing,r.data.localTax.label||'지방소득세',parseInt(r.data.localTax.amount)||0);
+        d.taxPay.locAmt=parseInt(r.data.localTax.amount)||0;
+        appliedTypes.push('지방세 납부서');
       }
-      d.taxItems2=existing;d.taxItems=JSON.parse(JSON.stringify(existing));syncTaxObj(d);
-      appliedTypes.push('소득세');
+      // 납부서에서 계좌번호 추출된 경우
+      if(r.data.account)d.taxPay.natAcct=r.data.account;
+      appliedTypes.push('소득세 납부서');
     }else if(dt==='local_tax'){
-      // 기존 세금 항목에 지방세 추가 (upsert)
-      var existing=d.taxItems2||d.taxItems||[];
-      upsertItem(existing,r.data.label||'지방소득세(특별징수)',parseInt(r.data.amount)||0);
-      d.taxItems2=existing;d.taxItems=JSON.parse(JSON.stringify(existing));syncTaxObj(d);
-      appliedTypes.push('지방세');
+      // ★ 지방세 납부서 → ⑥ 세금 납부서(taxPay)로 라우팅
+      if(!d.taxPay)d.taxPay={};
+      d.taxPay.locAmt=parseInt(r.data.amount)||0;
+      if(r.data.account)d.taxPay.locAcct=r.data.account;
+      appliedTypes.push('지방세 납부서');
     }else if(dt==='payroll'||dt==='freelance'){
       // 급여대장 → 직원+보험+세금 APPEND (upsert)
       var rd=r.data;
@@ -1126,8 +1128,9 @@ function normalizePDFText(text){
 function parsePayrollPDF(norm,raw){
   if(!norm)return null;
   var pn=function(s){return parseInt(String(s).replace(/[,\s]/g,''))||0};
-  // ── (A) 사업소득지급대장 ──
-  if(norm.includes('사업소득지급대장')||norm.includes('사업소득지급명세')||norm.includes('사업소득')){
+  // ── (A) 사업소득지급대장 ── (납부서/고지서는 제외)
+  var isPayNotice=norm.includes('납부서')||norm.includes('고지서')||norm.includes('납부할세액')||norm.includes('납부금액')||norm.includes('가상계좌');
+  if(!isPayNotice&&(norm.includes('사업소득지급대장')||norm.includes('사업소득지급명세')||norm.includes('사업소득'))){
     console.log('[PayrollPDF] 사업소득 감지');
     var staff=[],taxI1=0,taxLoc=0,totalNet=0;
     var allText=norm.replace(/\n/g,' ');
@@ -1307,7 +1310,7 @@ function parseTaxFromText(text){
   var norm=normalizePDFText(text);
   // 국세청 양식: 숫자 사이 공백 추가 제거 ("1 0 5 , 0 0 0" → "105,000")
   var prev='';while(prev!==norm){prev=norm;norm=norm.replace(/(\d)[^\S\n]+(\d)/g,'$1$2')}
-  console.log('[Tax Parse] Normalized:',norm.substring(0,300));
+  console.log('[Tax Parse] Normalized(500):',norm.substring(0,500));
   var items=[];
   // 세목별 납부금액 패턴 (국세청 납부서 양식)
   var taxPatterns=[
@@ -1334,7 +1337,14 @@ function parseTaxFromText(text){
   });
   // 납부금액/납부할세액 패턴 (지방세 납부서용 — 세목명 없이 금액만)
   if(items.length===0){
+    // 패턴1: "납부할세액" 또는 "납부금액" 뒤 숫자
     var amtMatch=norm.match(/납부\s*(?:할\s*)?(?:세액|금액)\s*[\s:]*?([\d,]+)/);
+    // 패턴2: "합계" 뒤 숫자 (지방세 양식)
+    if(!amtMatch)amtMatch=norm.match(/합\s*계\s*[\s:]*?([\d,]+)/);
+    // 패턴3: "세액" 뒤 숫자
+    if(!amtMatch)amtMatch=norm.match(/세\s*액\s*[\s:]*?([\d,]+)/);
+    // 패턴4: "총액" 뒤 숫자
+    if(!amtMatch)amtMatch=norm.match(/총\s*액\s*[\s:]*?([\d,]+)/);
     if(amtMatch){
       var v=parseInt(amtMatch[1].replace(/,/g,''));
       if(v>0){
@@ -1343,9 +1353,14 @@ function parseTaxFromText(text){
       }
     }
   }
+  // 가상계좌 추출 (납부서에서)
+  var account=null;
+  var acctMatch=norm.match(/(?:가상\s*계좌|납부\s*계좌|입금\s*계좌)\s*[:\s]*?(\d[\d\s-]{8,})/);
+  if(!acctMatch)acctMatch=norm.match(/(\d{3,4}[-\s]\d{4,6}[-\s]\d{4,8})/);
+  if(acctMatch)account=acctMatch[1].replace(/\s/g,'');
   if(items.length>0){
-    console.log('[Tax Parse] Found:',JSON.stringify(items));
-    return {items:items};
+    console.log('[Tax Parse] Found:',JSON.stringify(items),'account:',account);
+    return {items:items,account:account};
   }
   return null;
 }
@@ -1428,9 +1443,10 @@ async function smartProcessFile(file){
   console.log('[SMART] 처리 시작:',fname);
   // ① PDF 텍스트 직접 추출 시도 (무료, 빠름, 정확)
   var pdfText=await extractPDFText(file);
-  if(pdfText&&pdfText.trim().length>50){
+  console.log('[SMART] '+fname+' pdfText length:',pdfText?pdfText.trim().length:0);
+  if(pdfText&&pdfText.trim().length>10){
     var norm=normalizePDFText(pdfText);
-    console.log('[SMART] '+fname+' norm텍스트(200):',norm.substring(0,200));
+    console.log('[SMART] '+fname+' norm텍스트(300):',norm.substring(0,300));
     // ★ 급여대장/급여명세서/사업소득을 먼저 체크 (세금 파서보다 우선)
     var payrollResult=parsePayrollPDF(norm,pdfText);
     if(payrollResult){
@@ -1446,13 +1462,13 @@ async function smartProcessFile(file){
       if(hasLocal&&!hasIncome){
         var it=taxResult.items[0];
         console.log('[SMART] '+fname+' → 지방세 (PDF텍스트)',it.v);
-        return {docType:'local_tax',amount:it.v,label:it.l};
+        return {docType:'local_tax',amount:it.v,label:it.l,account:taxResult.account||null};
       }else{
         var items=taxResult.items.filter(function(it){return!it.l.includes('지방')}).map(function(it){return{label:it.l,amount:it.v}});
         var localItems=taxResult.items.filter(function(it){return it.l.includes('지방')});
         var total=items.reduce(function(a,it){return a+it.amount},0);
         console.log('[SMART] '+fname+' → 소득세 (PDF텍스트)',items.length+'건, 합계:',total);
-        var result={docType:'income_tax',items:items,total:total};
+        var result={docType:'income_tax',items:items,total:total,account:taxResult.account||null};
         // 지방세도 같이 있으면 포함
         if(localItems.length>0)result.localTax={label:localItems[0].l,amount:localItems[0].v};
         return result;
@@ -1510,13 +1526,22 @@ function renderSmartResult(d){
       if(d.tax){if(d.tax.i1)oh+='소득세 <b>'+fmt(d.tax.i1)+'</b> · ';if(d.tax.loc)oh+='지방세 <b>'+fmt(d.tax.loc)+'</b>';if(d.tax.i2)oh+=' · 기타 <b>'+fmt(d.tax.i2)+'</b>'}
       oh+='</div>'}
   }else if(d.docType==='income_tax'){
+    oh+='<div style="margin-top:4px;padding:6px 8px;background:rgba(168,85,247,0.06);border-radius:6px;font-size:11px;color:var(--purple)">';
+    oh+='<b>→ 세금 납부서 섹션에 적용</b> (직접 입금 항목)</div>';
     oh+='<table class="itbl" style="margin-top:4px"><tbody>';
     (d.items||[]).forEach(function(it){oh+='<tr><td>'+it.label+'</td><td style="font-weight:700">'+fmt(it.amount)+'</td></tr>'});
     if(d.localTax)oh+='<tr><td>'+d.localTax.label+'</td><td style="font-weight:700">'+fmt(d.localTax.amount)+'</td></tr>';
     var displayTotal=d.total+(d.localTax?d.localTax.amount:0);
     oh+='<tr><td><b>합계</b></td><td style="font-weight:700;color:var(--accent)">'+fmt(displayTotal)+'</td></tr></tbody></table>';
+    if(d.account)oh+='<div style="font-size:11px;color:var(--text3);margin-top:4px">계좌: '+d.account+'</div>';
   }else if(d.docType==='local_tax'){
+    oh+='<div style="margin-top:4px;padding:6px 8px;background:rgba(168,85,247,0.06);border-radius:6px;font-size:11px;color:var(--purple)">';
+    oh+='<b>→ 세금 납부서 섹션에 적용</b> (직접 입금 항목)</div>';
     oh+='<div style="margin-top:4px;font-size:13px">'+(d.label||'지방소득세')+': <b style="color:var(--accent)">'+fmt(d.amount)+'</b></div>';
+    if(d.account)oh+='<div style="font-size:11px;color:var(--text3);margin-top:4px">계좌: '+d.account+'</div>';
+  }else if(d.docType==='error'){
+    oh='<div style="margin-bottom:6px;font-size:11px;padding:4px 8px;background:var(--red-bg);border-radius:6px;color:var(--red);font-weight:700">⚠️ 인식 실패: '+(d.message||'알 수 없는 오류')+'</div>';
+    return oh;
   }else if(d.docType==='insurance'){
     oh+='<table class="itbl" style="margin-top:4px"><tbody>';
     (d.items||[]).forEach(function(it){oh+='<tr><td>'+it.l+'</td><td style="font-weight:700">'+fmt(it.v)+'</td></tr>'});
