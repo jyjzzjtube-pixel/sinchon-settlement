@@ -274,7 +274,7 @@ const SK='sinchon_v5',AK='sinchon_api',GK='sinchon_gemini',BK='sinchon_bank';
 let BNK={};
 function init(){
   // Gemini API 키 자동 설정 (지방세 등 텍스트 추출 불가 PDF용)
-  if(!localStorage.getItem(GK))localStorage.setItem(GK,'AIzaSyBpy2_ph1_-a-1ddmAT0uO9bNKaukZCY4w');
+  // Gemini API 키는 localStorage에서 관리 (소스코드 노출 방지)
   try{BNK=JSON.parse(localStorage.getItem(BK))||{}}catch(e){BNK={}}
   // 계좌정보: 사용자가 직접 입력 (기존 데이터 없으면 빈 기본값)
   const defBnk={'이채영':{bank:'',acct:''},'임명자':{bank:'',acct:''},'서지희':{bank:'',acct:''},'서현경':{bank:'',acct:''},'정혜빈':{bank:'',acct:''},'정의송':{bank:'',acct:''},'길호정':{bank:'',acct:''}};
@@ -1804,7 +1804,7 @@ function acI(){
   sv2('totSal',ts);
   sv2('ins-tot',dynTot('ins'));
   sv2('tax-tot',dynTot('tax'));
-  sv2('labTot',ts+dynTot('ins'));
+  sv2('labTot',ts+dynTot('ins')+dynTot('tax'));
   sv2('etc-tot',dynTot('etc'));
 }
 
@@ -1835,7 +1835,8 @@ function savM(){if(!D[Y])D[Y]={};
     staff,totalSalary:staff.reduce((a,s)=>a+s.salary,0),
     insurance:{health:insItems[0]?.v||0,employ:insItems[1]?.v||0,injury:insItems[2]?.v||0},totalInsurance:dynTot('ins'),
     tax:(function(){var tm={i1:0,i2:0,loc:0};taxItems.forEach(function(it){if(it.l.includes('원천')||it.l==='소득세2')tm.i2=it.v||0;else if(it.l.includes('지방'))tm.loc=it.v||0;else if(it.l.includes('소득'))tm.i1=it.v||0});return tm})(),totalTax:dynTot('tax'),
-    invoiceAmt:gv('invAmt'),foodItems,insItems,taxItems2:JSON.parse(JSON.stringify(taxItems)),taxItems,etcItems};
+    invoiceAmt:gv('invAmt'),foodItems,insItems,taxItems2:JSON.parse(JSON.stringify(taxItems)),taxItems,etcItems,
+    taxPay:(D[Y]&&D[Y][M]&&D[Y][M].taxPay)?JSON.parse(JSON.stringify(D[Y][M].taxPay)):{}};
   recalcAll(D[Y][M]);sv();rM();toast('✅ '+M+'월 저장')}
 function delM(){if(!confirm(Y+'년 '+M+'월 삭제?'))return;if(D[Y])delete D[Y][M];sv();rM();rInp();toast('🗑 삭제')}
 function cpPrev(){const p=M-1;if(p<1||!(D[Y]||{})[p]){toast('⚠️ 전월 없음');return}if(!D[Y])D[Y]={};D[Y][M]=JSON.parse(JSON.stringify(D[Y][p]));sv();rM();rInp();toast('📋 복사')}
