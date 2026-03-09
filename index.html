@@ -1353,16 +1353,50 @@ function parseTaxFromText(text){
       }
     }
   }
-  // 가상계좌 추출 (납부서에서)
+  // ★ 은행별 가상계좌 전체 추출 (국세 납부서: 6개 은행)
   var account=null;
-  var acctMatch=norm.match(/(?:가상\s*계좌|납부\s*계좌|입금\s*계좌)\s*[:\s]*?(\d[\d\s-]{8,})/);
-  if(!acctMatch)acctMatch=norm.match(/(\d{3,4}[-\s]\d{4,6}[-\s]\d{4,8})/);
-  if(acctMatch)account=acctMatch[1].replace(/\s/g,'');
+  var allAccounts=[];
+  var bankNames=['국세계좌','기업','하나','신한','국민','우리','NH','농협','수협'];
+  bankNames.forEach(function(bn){
+    var re=new RegExp(bn+'\\s*([\\d][\\d\\s-]{8,})');
+    var m=norm.match(re);
+    if(m){var acct=m[1].replace(/\s/g,'').replace(/-+$/,'');if(acct.length>=10)allAccounts.push(bn+' '+acct)}
+  });
+  if(allAccounts.length>0){
+    // 일반 은행 우선 (국세계좌 제외)
+    var nonK=allAccounts.filter(function(a){return a.indexOf('국세계좌')<0});
+    account=nonK.length>0?nonK.join(' / '):allAccounts[0];
+  }
   if(items.length>0){
-    console.log('[Tax Parse] Found:',JSON.stringify(items),'account:',account);
+    console.log('[Tax Parse] Found:',JSON.stringify(items),'accounts:',allAccounts.length,'→',account);
     return {items:items,account:account};
   }
   return null;
+}
+
+// ★ 지방세 납부서 전용 파서 (한글 깨진 PDF 대응 — 숫자 패턴으로 감지)
+function parseLocalTaxByNumbers(text){
+  if(!text)return null;
+  var t=text.replace(/\s+/g,' ');
+  // 지방세 전자납부번호 패턴: XXXXX-X-XX-XX-X-XXXXXXX-X
+  var epay=t.match(/(\d{5}-\d-\d{2}-\d{2}-\d-\d{6,8}-\d)/);
+  if(!epay)return null;
+  console.log('[LocalTax] 전자납부번호 감지:',epay[1]);
+  // NH 가상계좌
+  var nh=t.match(/NH\s*([\d][\d-]{8,})/);
+  // 금액 추출: 빈도 기반 (동일 금액 2회 이상 = 납부금액)
+  var nums=(t.match(/[\d,]{3,}/g)||[]).map(function(s){return parseInt(s.replace(/,/g,''))}).filter(function(v){return v>0&&v<500000&&v!==2026&&v!==2025&&v!==2024});
+  var freq={};nums.forEach(function(v){freq[v]=(freq[v]||0)+1});
+  var best=0,bestCnt=0;
+  Object.keys(freq).forEach(function(k){var v=parseInt(k);if(freq[k]>bestCnt){bestCnt=freq[k];best=v}});
+  if(best===0)return null;
+  console.log('[LocalTax] 금액:',best,'('+bestCnt+'회), 계좌:',nh?nh[1]:epay[1]);
+  return {
+    docType:'local_tax',
+    amount:best,
+    label:'지방소득세(특별징수)',
+    account:nh?'NH '+nh[1]:epay[1]
+  };
 }
 
 // 단일 파일 OCR (결과만 반환, UI 미제어)
@@ -1473,6 +1507,12 @@ async function smartProcessFile(file){
         if(localItems.length>0)result.localTax={label:localItems[0].l,amount:localItems[0].v};
         return result;
       }
+    }
+    // ★ 한글 깨진 지방세 PDF → 숫자 패턴으로 감지
+    var localResult=parseLocalTaxByNumbers(pdfText);
+    if(localResult){
+      console.log('[SMART] '+fname+' → 지방세 (숫자패턴)',localResult.amount);
+      return localResult;
     }
   }
   // ② PDF 텍스트 추출 실패/비세금 → AI OCR (Gemini/Claude)
