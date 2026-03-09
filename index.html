@@ -552,7 +552,51 @@ function rLab(){
   h+='<div class="ocr-rs" id="acctRes"><div class="ocr-rl">🤖 AI 자동분류</div><div id="acctBody"></div></div>';
   h+='<table class="atbl"><thead><tr><th>성명</th><th>은행</th><th>계좌번호</th><th style="text-align:right">차인지급액</th><th></th></tr></thead><tbody>'+ar+'</tbody></table></div>';
 
-  // ⑥ 저장 버튼
+  // ⑥ 세금 납부서
+  if(!d.taxPay)d.taxPay={};
+  var tp=d.taxPay;
+  var _autoNat=0,_autoLoc=0;
+  staff.forEach(function(s){if(s.type==='3.3%'){var g=Math.round((s.salary||0)/0.967);_autoNat+=Math.round(g*0.03);_autoLoc+=Math.round(g*0.003)}});
+  var _natAmt=tp.natAmt!=null?tp.natAmt:_autoNat;
+  var _locAmt=tp.locAmt!=null?tp.locAmt:_autoLoc;
+  var _natAcct=tp.natAcct||'';var _locAcct=tp.locAcct||'';
+  var _nxM=parseInt(M)+1,_nxY=parseInt(Y);if(_nxM>12){_nxM=1;_nxY++}
+  var _dl=_nxY+'년 '+_nxM+'월 10일';
+
+  h+='<div class="fc" id="dz-taxpay"><div class="fc-t" style="justify-content:space-between"><span>📄 세금 납부서</span>';
+  h+='<div style="display:flex;gap:6px"><button class="cpb" onclick="copyTaxPayKakao()">💬 카톡 메모</button></div></div>';
+
+  // 소득세 (국세)
+  h+='<div style="padding:16px;background:var(--accent-bg);border-radius:12px;margin-bottom:12px">';
+  h+='<div style="font-weight:800;font-size:14px;color:var(--accent);margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">';
+  h+='<span>🏛 소득세 (국세) - 사업소득세</span><span style="font-family:var(--mono);font-size:18px;font-weight:900">'+fmt(_natAmt)+'</span></div>';
+  h+='<div style="display:flex;flex-direction:column;gap:10px">';
+  h+='<div style="display:flex;align-items:center;gap:10px"><span style="font-size:12px;color:var(--text2);width:70px;flex-shrink:0">납부금액</span>';
+  h+='<input value="'+_natAmt+'" style="flex:1;border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-family:var(--mono);font-size:14px;text-align:right;font-weight:700;color:var(--accent)" onchange="updTaxPay(\'natAmt\',this.value)"></div>';
+  h+='<div style="display:flex;align-items:center;gap:10px"><span style="font-size:12px;color:var(--text2);width:70px;flex-shrink:0">가상계좌</span>';
+  h+='<input value="'+_natAcct+'" placeholder="국세 납부서 계좌번호 입력" style="flex:1;border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-family:var(--mono);font-size:12px" onchange="updTaxPay(\'natAcct\',this.value)"></div>';
+  h+='<div style="display:flex;align-items:center;gap:10px"><span style="font-size:12px;color:var(--text2);width:70px;flex-shrink:0">납부기한</span>';
+  h+='<span style="font-size:13px;font-weight:700;color:var(--red)">'+_dl+'</span></div>';
+  h+='<div style="font-size:10px;color:var(--text3);font-style:italic;margin-top:2px">3.3% 사업소득 원천징수 자동계산: '+fmt(_autoNat)+'</div>';
+  h+='</div></div>';
+
+  // 지방소득세
+  h+='<div style="padding:16px;background:rgba(107,82,174,0.06);border-radius:12px;margin-bottom:12px">';
+  h+='<div style="font-weight:800;font-size:14px;color:var(--purple);margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">';
+  h+='<span>🏢 지방소득세 (특별징수)</span><span style="font-family:var(--mono);font-size:18px;font-weight:900">'+fmt(_locAmt)+'</span></div>';
+  h+='<div style="display:flex;flex-direction:column;gap:10px">';
+  h+='<div style="display:flex;align-items:center;gap:10px"><span style="font-size:12px;color:var(--text2);width:70px;flex-shrink:0">납부금액</span>';
+  h+='<input value="'+_locAmt+'" style="flex:1;border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-family:var(--mono);font-size:14px;text-align:right;font-weight:700;color:var(--purple)" onchange="updTaxPay(\'locAmt\',this.value)"></div>';
+  h+='<div style="display:flex;align-items:center;gap:10px"><span style="font-size:12px;color:var(--text2);width:70px;flex-shrink:0">가상계좌</span>';
+  h+='<input value="'+_locAcct+'" placeholder="지방세 납부서 계좌번호 입력" style="flex:1;border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-family:var(--mono);font-size:12px" onchange="updTaxPay(\'locAcct\',this.value)"></div>';
+  h+='<div style="display:flex;align-items:center;gap:10px"><span style="font-size:12px;color:var(--text2);width:70px;flex-shrink:0">납부기한</span>';
+  h+='<span style="font-size:13px;font-weight:700;color:var(--red)">'+_dl+'</span></div>';
+  h+='<div style="font-size:10px;color:var(--text3);font-style:italic;margin-top:2px">3.3% 사업소득 지방세 자동계산: '+fmt(_autoLoc)+'</div>';
+  h+='</div></div>';
+
+  h+='</div>';
+
+  // ⑦ 저장 버튼
   h+='<button class="btn-sv" onclick="saveLabor()" style="margin-top:16px">💾 인건비 저장</button>';
 
   h+='</div>';
@@ -563,6 +607,52 @@ function rLab(){
   setupDZ('dz-ins',function(f){universalOCR([f],'ins')},function(fs){universalOCR(fs,'ins')});
   setupDZ('dz-tax',function(f){universalOCR([f],'tax')},function(fs){universalOCR(fs,'tax')});
   setupDZ('dz-acct',function(f){universalOCR([f],'acct')},function(fs){universalOCR(fs,'acct')});
+}
+
+// ═══ 세금 납부서 ═══
+function updTaxPay(key,val){
+  var d=D[Y]?.[M];if(!d)return;
+  if(!d.taxPay)d.taxPay={};
+  if(key==='natAmt'||key==='locAmt'){d.taxPay[key]=parseInt(String(val).replace(/[^0-9\-]/g,''))||0}
+  else{d.taxPay[key]=val}
+  sv();rLab();
+}
+function copyTaxPayKakao(){
+  var d=D[Y]?.[M];if(!d)return;
+  var tp=d.taxPay||{};var staff=d.staff||[];
+  var tN=staff.reduce(function(a,s){return a+(s.net||s.salary||0)},0);
+  var _autoNat=0,_autoLoc=0;
+  staff.forEach(function(s){if(s.type==='3.3%'){var g=Math.round((s.salary||0)/0.967);_autoNat+=Math.round(g*0.03);_autoLoc+=Math.round(g*0.003)}});
+  var natAmt=tp.natAmt!=null?tp.natAmt:_autoNat;
+  var locAmt=tp.locAmt!=null?tp.locAmt:_autoLoc;
+  var natAcct=tp.natAcct||'(미입력)';var locAcct=tp.locAcct||'(미입력)';
+  var _nxM=parseInt(M)+1,_nxY=parseInt(Y);if(_nxM>12){_nxM=1;_nxY++}
+  var txt='[신촌현대 '+Y+'년 '+M+'월 세금/급여 납부]\n';
+  txt+='────────────────\n\n';
+  txt+='■ 소득세 (국세)\n';
+  txt+='  납부금액: '+natAmt.toLocaleString()+'원\n';
+  txt+='  계좌: '+natAcct+'\n\n';
+  txt+='■ 지방소득세\n';
+  txt+='  납부금액: '+locAmt.toLocaleString()+'원\n';
+  txt+='  계좌: '+locAcct+'\n\n';
+  txt+='납부기한: '+_nxY+'년 '+_nxM+'월 10일\n';
+  txt+='────────────────\n\n';
+  txt+='■ 급여 송금\n';
+  staff.forEach(function(s){
+    var b=BNK[s.name]||{};
+    txt+='  '+s.name+': '+(s.net||0).toLocaleString()+'원';
+    if(b.bank)txt+=' ('+b.bank+' '+(b.acct||'')+')';
+    txt+='\n';
+  });
+  var tIns=(d.insItems||[]).reduce(function(a,it){return a+(it.v||0)},0);
+  var tTax=(d.taxItems2||[]).reduce(function(a,it){return a+(it.v||0)},0);
+  txt+='\n────────────────\n';
+  txt+='차인지급액: '+tN.toLocaleString()+'원\n';
+  txt+='4대보험: '+tIns.toLocaleString()+'원\n';
+  txt+='세금: '+tTax.toLocaleString()+'원\n';
+  txt+='인건비 총합계: '+(d.laborCost||0).toLocaleString()+'원\n';
+  txt+='────────────────';
+  navigator.clipboard.writeText(txt).then(function(){toast('카톡 메모 복사 완료!')});
 }
 
 // 파일 타입 검증 (이미지, PDF만 허용)
