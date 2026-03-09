@@ -444,6 +444,22 @@ function rLab(){
   if(!D[Y])D[Y]={};
   if(!D[Y][M])D[Y][M]={};
   const d=D[Y][M];
+  // [PATCH] 2026/02 OCR 오염 데이터 자동 보정
+  if(!d._patch1 && d.staff){
+    var _needPatch=false;
+    d.staff.forEach(function(s){
+      if(s.name==='길호정'&&s.salary<100000){s.salary=2812570;s.net=2812570;s.ded=0;_needPatch=true}
+      if(s.name==='서현경'&&s.ded!==0){s.salary=1798620;s.net=1798620;s.ded=0;_needPatch=true}
+      if(s.name==='정혜빈'&&s.ded!==0){s.salary=1585880;s.net=1585880;s.ded=0;_needPatch=true}
+    });
+    if(d.insItems&&d.insItems.length>0&&d.insItems[0].v<1000){
+      d.insItems=[{l:'건강보험',v:93470},{l:'고용보험',v:23400},{l:'장기요양보험료',v:12280}];_needPatch=true;
+    }
+    if(d.taxItems2&&d.taxItems2.length>0&&Math.abs(d.taxItems2[0].v)<1000){
+      d.taxItems2=[{l:'소득세',v:144690},{l:'지방소득세',v:14460},{l:'연말정산소득세',v:-168550},{l:'연말정산지방소득세',v:-16820}];_needPatch=true;
+    }
+    if(_needPatch){d._patch1=true;recalcAll(d);sv()}
+  }
   // 고스트 엔트리 정리 + 데이터 마이그레이션 (변경시 자동저장)
   var _migrated=false;
   if(d.staff){var _before=d.staff.length;d.staff=d.staff.filter(function(s){return s.name&&!s.name.match(/합계|소계|사업소득합|급여대장합|총계/)});if(d.staff.length!==_before)_migrated=true}
