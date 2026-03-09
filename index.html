@@ -228,6 +228,40 @@
 </div>
 <div class="mo" id="apiMo"><div class="md"><h3>🔑 API 키 설정</h3><p>OCR 스캔에 사용. 브라우저에만 저장됩니다.</p><div style="margin-bottom:12px"><div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:4px">✨ Gemini API (무료 추천)</div><input type="password" id="gemIn" placeholder="AIzaSy..." style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12px;outline:0"><div style="font-size:10px;color:var(--text3);margin-top:3px"><a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--accent)">Google AI Studio</a>에서 무료 발급</div></div><div style="margin-bottom:12px"><div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:4px">Claude API (유료 백업)</div><input type="password" id="apiIn" placeholder="sk-ant-api03-..." style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12px;outline:0"></div><div class="md-b"><button class="md-btn" onclick="hideApi()">취소</button><button class="md-btn pri" onclick="saveApi()">저장</button></div></div></div>
 <div class="mo" id="kakMo"><div class="md"><h3>💬 카톡 송금 텍스트</h3><p>복사하여 카톡에 붙여넣기</p><textarea class="ka" id="kakTx" readonly></textarea><div class="md-b" style="margin-top:12px"><button class="md-btn" onclick="$('#kakMo').classList.remove('show')">닫기</button><button class="md-btn pri" onclick="navigator.clipboard.writeText($('#kakTx').value);toast('📋 복사 완료')">📋 복사</button></div></div></div>
+<div class="mo" id="bulkMo"><div class="md" style="width:740px;max-width:95vw">
+<h3>📋 급여 벌크 입력</h3>
+<div style="display:flex;gap:2px;margin:10px 0 8px;background:var(--bg);border-radius:10px;padding:3px;border:1px solid var(--border)">
+  <button id="bTab1" class="vt act" onclick="bulkTab(1)" style="flex:1;font-size:12px">급여대장 (4대보험)</button>
+  <button id="bTab2" class="vt" onclick="bulkTab(2)" style="flex:1;font-size:12px">사업소득 (3.3%)</button>
+</div>
+<div id="bPan1">
+  <p style="font-size:10px;color:var(--text3);line-height:1.7;margin-bottom:6px">
+    <b style="color:var(--accent)">형식:</b> 이름 | 기본급 | 식대 | 건강보험 | 고용보험 | 장기요양 | 소득세 | 지방소득세 | 연말정산소득세 | 연말정산지방소득세 | 은행 | 계좌<br>
+    * 탭/콤마 구분. 연말정산·은행·계좌 생략 가능. <b>원 단위 정확히 입력</b></p>
+  <div style="display:flex;gap:6px;margin-bottom:6px">
+    <button class="cpb" onclick="bulkEx1()" style="font-size:10px">예시</button>
+    <button class="cpb" onclick="bulkClear(1)" style="font-size:10px">지우기</button>
+  </div>
+  <textarea id="bulkTx1" class="ka" style="min-height:140px;font-size:11px;line-height:2" placeholder="길호정	2600000	200000	93470	23400	12280	39690	3960	-168550	-16820	우리은행	001-21-0174-858"></textarea>
+</div>
+<div id="bPan2" style="display:none">
+  <p style="font-size:10px;color:var(--text3);line-height:1.7;margin-bottom:6px">
+    <b style="color:var(--accent)">형식:</b> 이름 | 지급액 | 소득세 | 지방소득세 | 은행 | 계좌<br>
+    * 탭/콤마 구분. 은행·계좌 생략 가능. <b>원 단위 정확히 입력</b></p>
+  <div style="display:flex;gap:6px;margin-bottom:6px">
+    <button class="cpb" onclick="bulkEx2()" style="font-size:10px">예시</button>
+    <button class="cpb" onclick="bulkClear(2)" style="font-size:10px">지우기</button>
+  </div>
+  <textarea id="bulkTx2" class="ka" style="min-height:140px;font-size:11px;line-height:2" placeholder="서현경	1860000	55800	5580	신한	110-58775-1268
+정혜빈	1640000	49200	4920	우리은행	119-04-972102-601"></textarea>
+</div>
+<div id="bulkPreview" style="margin-top:10px;max-height:250px;overflow-y:auto;display:none"></div>
+<div class="md-b" style="margin-top:12px">
+  <button class="md-btn" onclick="hideBulk()">취소</button>
+  <button class="md-btn" onclick="bulkPreviewParse()" style="background:var(--blue);color:#fff;border-color:var(--blue)">미리보기</button>
+  <button class="md-btn pri" onclick="bulkApply()">적용</button>
+</div>
+</div></div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -410,10 +444,12 @@ function rLab(){
   if(!D[Y])D[Y]={};
   if(!D[Y][M])D[Y][M]={};
   const d=D[Y][M];
+  // 고스트 엔트리 정리 (합계행/소계 등)
+  if(d.staff){d.staff=d.staff.filter(function(s){return s.name&&!s.name.match(/합계|소계|사업소득합|급여대장합|총계/)})}
+  // 기존 데이터 마이그레이션: salary=차인지급액, ded=0
+  if(d.staff){d.staff.forEach(function(s){if(s.ded&&s.ded!==0){var nv=s.net>0?s.net:(s.salary>0?s.salary:0);s.salary=nv;s.net=nv;s.ded=0}})}
   const staff=d.staff||[];
-  const tS=staff.reduce((a,s)=>a+(s.salary||0),0);
-  const tD=staff.reduce((a,s)=>a+(s.ded||0),0);
-  const tN=staff.reduce((a,s)=>a+(s.net||0),0);
+  const tN=staff.reduce((a,s)=>a+(s.net||s.salary||0),0);
   // 4대보험 동적 항목
   if(!d.insItems)d.insItems=[{l:'건강보험',v:d.insurance?.health||0},{l:'고용보험',v:d.insurance?.employ||0},{l:'산재보험',v:d.insurance?.injury||0}];
   var insItems=d.insItems;
@@ -433,9 +469,7 @@ function rLab(){
     stRows+='<td><input value="'+(s.name||'')+'" style="width:80px;border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-weight:700;font-family:var(--sans);font-size:13px" onchange="updStf('+i+',\'name\',this.value)"></td>';
     stRows+='<td><select style="border:1px solid var(--border);border-radius:6px;padding:4px;font-size:11px;font-family:var(--sans)" onchange="updStf('+i+',\'type\',this.value)">';
     stRows+='<option value="4대보험"'+sel4+'>4대보험</option><option value="3.3%"'+sel33+'>3.3%</option><option value="일당"'+selD+'>일당</option></select></td>';
-    stRows+='<td><input value="'+(s.salary||0)+'" style="width:100px;border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-family:var(--mono);font-size:13px;text-align:right" onchange="updStf('+i+',\'salary\',parseInt(this.value)||0)"></td>';
-    stRows+='<td style="color:var(--red)">'+fmt(s.ded)+'</td>';
-    stRows+='<td style="color:var(--accent);font-weight:700">'+fmt(s.net)+'</td>';
+    stRows+='<td><input value="'+(s.salary||0)+'" style="width:120px;border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-family:var(--mono);font-size:13px;text-align:right;color:var(--accent);font-weight:700" onchange="updStf('+i+',\'salary\',parseInt(this.value)||0)"></td>';
     stRows+='<td><button style="border:0;background:0;color:var(--red);cursor:pointer;font-size:14px;padding:4px" onclick="delStfLab('+i+')">✕</button></td></tr>';
   });
   // 4대보험 행
@@ -470,12 +504,13 @@ function rLab(){
   h+='<div class="fc" id="dz-staff"><div class="fc-t" style="justify-content:space-between"><span>👥 '+Y+'년 '+M+'월 인건비</span>';
   h+='<div style="display:flex;gap:6px;align-items:center">';
   h+='<button class="btn-a" onclick="addStfLab()">+ 직원 추가</button>';
+  h+='<button class="btn-a" onclick="showBulk()" style="background:var(--accent-lt);border-color:var(--accent);color:var(--accent);font-weight:700">📋 벌크 입력</button>';
   h+='<div class="ocr-btn" onclick="document.getElementById(\'labOcr\').click()"><span>📄</span> 인건비 OCR<input type="file" id="labOcr" accept="image/*,.pdf" multiple style="display:none" onchange="hLabOCR(event)"></div>';
   h+='</div></div>';
   h+='<div class="ocr-rs" id="labRes"><div class="ocr-rl">🤖 AI 자동분류</div><div id="labBody"></div></div>';
-  h+='<table class="ltbl"><thead><tr><th>NO</th><th style="text-align:left">성명</th><th>구분</th><th>급여</th><th>공제액</th><th style="color:var(--accent)">차인지급액</th><th></th></tr></thead><tbody>';
+  h+='<table class="ltbl"><thead><tr><th>NO</th><th style="text-align:left">성명</th><th>구분</th><th style="color:var(--accent)">차인지급액</th><th></th></tr></thead><tbody>';
   h+=stRows;
-  h+='<tr class="tot"><td></td><td>합계 '+staff.length+'명</td><td></td><td>'+fmt(tS)+'</td><td style="color:var(--red)">'+fmt(tD)+'</td><td style="color:var(--accent);font-weight:700">'+fmt(tN)+'</td><td></td></tr></tbody></table></div>';
+  h+='<tr class="tot"><td></td><td>합계 '+staff.length+'명</td><td></td><td style="color:var(--accent);font-weight:700">'+fmt(tN)+'</td><td></td></tr></tbody></table></div>';
 
   // ② 4대보험
   h+='<div class="fc" id="dz-ins"><div class="fc-t" style="justify-content:space-between"><span>🏦 4대보험 <span style="font-size:11px;color:var(--text3);font-weight:400">자동이체</span></span>';
@@ -565,7 +600,7 @@ function saveLabor(){
 function updStfNet(idx,val){
   var d=D[Y]?.[M];if(!d||!d.staff)return;
   var v=parseInt(String(val).replace(/[^0-9]/g,''))||0;
-  if(d.staff[idx]){d.staff[idx].net=v;d.staff[idx].ded=d.staff[idx].salary-v}
+  if(d.staff[idx]){d.staff[idx].salary=v;d.staff[idx].net=v;d.staff[idx].ded=0}
   recalcAll(d);sv();rM();rLab();
 }
 // 계좌 성명 수정 → staff + BNK 양방향 연동
@@ -611,12 +646,122 @@ function delStfLab(i){
 function updStf(i,field,val){
   var d=D[Y]?.[M];if(!d||!d.staff||!d.staff[i])return;
   d.staff[i][field]=val;
-  if(field==='salary'){
-    var s=d.staff[i];
-    if(s.type==='4대보험'){s.ded=Math.round(s.salary*0.0935);s.net=s.salary-s.ded}
-    else{s.ded=Math.round(s.salary*0.033);s.net=s.salary-s.ded}
-  }
+  if(field==='salary'){d.staff[i].net=d.staff[i].salary;d.staff[i].ded=0}
   recalcAll(d);sv();rM();rLab()
+}
+
+// ═══ 벌크 입력 (급여대장/사업소득 양식) ═══
+var _bulkTab=1;
+function showBulk(){$('#bulkMo').classList.add('show');$('#bulkTx1').value='';$('#bulkTx2').value='';$('#bulkPreview').style.display='none';bulkTab(1)}
+function hideBulk(){$('#bulkMo').classList.remove('show')}
+function bulkTab(n){_bulkTab=n;$('#bTab1').classList.toggle('act',n===1);$('#bTab2').classList.toggle('act',n===2);$('#bPan1').style.display=n===1?'':'none';$('#bPan2').style.display=n===2?'':'none';$('#bulkPreview').style.display='none'}
+function bulkClear(n){$('#bulkTx'+(n||_bulkTab)).value='';$('#bulkPreview').style.display='none'}
+function bulkEx1(){$('#bulkTx1').value='길호정\t2600000\t200000\t93470\t23400\t12280\t39690\t3960\t-168550\t-16820\t우리은행\t001-21-0174-858';$('#bulkPreview').style.display='none'}
+function bulkEx2(){$('#bulkTx2').value='서현경\t1860000\t55800\t5580\t신한\t110-58775-1268\n정혜빈\t1640000\t49200\t4920\t우리은행\t119-04-972102-601';$('#bulkPreview').style.display='none'}
+function _pN(s){if(!s)return 0;var neg=String(s).indexOf('-')>=0;var n=parseInt(String(s).replace(/[^0-9]/g,''))||0;return neg?-n:n}
+function _parseBulkAll(){
+  var results=[],seen={};
+  var raw1=$('#bulkTx1').value.trim();
+  if(raw1){
+    raw1.split('\n').forEach(function(line){
+      line=line.trim();if(!line||line.match(/^이름|^직원|^성명|^사원|^NO/i))return;
+      var sep=line.indexOf('\t')>=0?'\t':(line.indexOf('|')>=0?'|':',');
+      var c=line.split(sep).map(function(s){return s.trim()});
+      if(c.length<4||!c[0])return;
+      var nm=c[0];if(seen[nm]||nm.match(/합계|소계|사업소득합|급여대장합|총계/))return;seen[nm]=true;
+      var base=_pN(c[1]),meal=_pN(c[2]),sal=base+meal;
+      var health=_pN(c[3]),employ=_pN(c[4]),lt=_pN(c[5]);
+      var iTax=_pN(c[6]),lTax=_pN(c[7]),yeI=_pN(c[8]),yeL=_pN(c[9]);
+      var bk=(c[10]||'').trim(),ac=(c[11]||'').trim();
+      var ded=health+employ+lt+iTax+lTax+yeI+yeL;
+      results.push({name:nm,salary:sal,type:'4대보험',ded:ded,net:sal-ded,
+        base:base,meal:meal,health:health,employ:employ,longterm:lt,
+        incomeTax:iTax,localTax:lTax,yearEndI:yeI,yearEndL:yeL,bank:bk,acct:ac});
+    });
+  }
+  var raw2=$('#bulkTx2').value.trim();
+  if(raw2){
+    raw2.split('\n').forEach(function(line){
+      line=line.trim();if(!line||line.match(/^이름|^직원|^성명|^NO/i))return;
+      var sep=line.indexOf('\t')>=0?'\t':(line.indexOf('|')>=0?'|':',');
+      var c=line.split(sep).map(function(s){return s.trim()});
+      if(c.length<3||!c[0])return;
+      var nm=c[0];if(seen[nm]||nm.match(/합계|소계|사업소득합|급여대장합|총계/))return;seen[nm]=true;
+      var pay=_pN(c[1]),it=_pN(c[2]),lt2=_pN(c[3]);
+      var bk2=(c[4]||'').trim(),ac2=(c[5]||'').trim();
+      var ded2=it+lt2;
+      results.push({name:nm,salary:pay,type:'3.3%',ded:ded2,net:pay-ded2,
+        base:pay,meal:0,health:0,employ:0,longterm:0,
+        incomeTax:it,localTax:lt2,yearEndI:0,yearEndL:0,bank:bk2,acct:ac2});
+    });
+  }
+  return results;
+}
+function bulkPreviewParse(){
+  var items=_parseBulkAll();
+  if(!items.length){toast('입력 데이터가 없습니다');return}
+  var h='<table style="width:100%;font-size:10px;border-collapse:collapse">';
+  h+='<tr style="background:var(--bg);font-weight:700"><td style="padding:4px 5px">이름</td><td>구분</td><td>차인지급액</td><td>은행</td></tr>';
+  items.forEach(function(it,i){
+    var bg=i%2===0?'#fff':'var(--bg)';
+    h+='<tr style="background:'+bg+'"><td style="padding:3px 5px;font-weight:600">'+it.name+'</td>';
+    h+='<td><span style="font-size:9px;padding:1px 5px;border-radius:4px;background:'+(it.type==='4대보험'?'var(--accent-lt)':'#fef3cd')+'">'+it.type+'</span></td>';
+    h+='<td style="font-family:var(--mono);font-weight:700;color:var(--accent)">'+it.net.toLocaleString()+'</td>';
+    h+='<td>'+(it.bank||'-')+'</td></tr>';
+  });
+  h+='</table>';
+  var ins4=items.filter(function(it){return it.type==='4대보험'});
+  var sH=ins4.reduce(function(a,it){return a+it.health},0);
+  var sE=ins4.reduce(function(a,it){return a+it.employ},0);
+  var sL=ins4.reduce(function(a,it){return a+it.longterm},0);
+  var sIT=items.reduce(function(a,it){return a+it.incomeTax},0);
+  var sLT=items.reduce(function(a,it){return a+it.localTax},0);
+  h+='<div style="margin-top:8px;padding:8px;background:var(--bg);border-radius:8px;font-size:10px;line-height:1.8">';
+  h+='<b style="color:var(--accent)">'+items.length+'명</b><br>';
+  h+='차인지급합계: '+items.reduce(function(a,it){return a+it.net},0).toLocaleString()+'<br>';
+  if(ins4.length)h+='<span style="color:var(--text2)">4대보험: 건강 '+sH.toLocaleString()+' / 고용 '+sE.toLocaleString()+' / 장기요양 '+sL.toLocaleString()+'</span><br>';
+  h+='<span style="color:var(--text2)">세금: 소득세 '+sIT.toLocaleString()+' / 지방소득세 '+sLT.toLocaleString()+'</span></div>';
+  $('#bulkPreview').innerHTML=h;$('#bulkPreview').style.display='block';toast('미리보기 '+items.length+'명')
+}
+function bulkApply(){
+  var items=_parseBulkAll();
+  if(!items.length){toast('입력 데이터가 없습니다');return}
+  if(!D[Y])D[Y]={};if(!D[Y][M])D[Y][M]={};
+  var d=D[Y][M];if(!d.staff)d.staff=[];
+  var added=0,updated=0;
+  items.forEach(function(it){
+    var idx=-1;
+    for(var i=0;i<d.staff.length;i++){if(d.staff[i].name===it.name){idx=i;break}}
+    if(idx>=0){d.staff[idx].salary=it.net;d.staff[idx].type=it.type;d.staff[idx].ded=0;d.staff[idx].net=it.net;updated++}
+    else{d.staff.push({name:it.name,salary:it.net,type:it.type,ded:0,net:it.net});added++}
+    if(it.bank||it.acct){if(!BNK[it.name])BNK[it.name]={bank:'',acct:''};if(it.bank)BNK[it.name].bank=it.bank;if(it.acct)BNK[it.name].acct=it.acct}
+  });
+  var ins4=items.filter(function(it){return it.type==='4대보험'});
+  if(ins4.length){
+    d.insItems=[];
+    var sH=ins4.reduce(function(a,it){return a+it.health},0);
+    var sE=ins4.reduce(function(a,it){return a+it.employ},0);
+    var sL=ins4.reduce(function(a,it){return a+it.longterm},0);
+    if(sH)d.insItems.push({l:'건강보험',v:sH});
+    if(sE)d.insItems.push({l:'고용보험',v:sE});
+    if(sL)d.insItems.push({l:'장기요양보험료',v:sL});
+    syncInsObj(d);
+  }
+  var sIT=items.reduce(function(a,it){return a+it.incomeTax},0);
+  var sLT=items.reduce(function(a,it){return a+it.localTax},0);
+  var sYI=items.reduce(function(a,it){return a+it.yearEndI},0);
+  var sYL=items.reduce(function(a,it){return a+it.yearEndL},0);
+  if(sIT||sLT||sYI||sYL){
+    d.taxItems2=[];
+    if(sIT)d.taxItems2.push({l:'소득세',v:sIT});
+    if(sLT)d.taxItems2.push({l:'지방소득세',v:sLT});
+    if(sYI)d.taxItems2.push({l:'연말정산소득세',v:sYI});
+    if(sYL)d.taxItems2.push({l:'연말정산지방소득세',v:sYL});
+    syncTaxObj(d);
+  }
+  recalcAll(d);sv();svB();rM();rLab();hideBulk();
+  var msg=added+'명 추가';if(updated)msg+=' / '+updated+'명 업데이트';
+  msg+=' | 4대보험·세금 자동 연동';toast(msg)
 }
 
 // 4대보험 항목
