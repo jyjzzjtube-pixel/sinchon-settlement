@@ -1519,62 +1519,47 @@ async function smartProcessFile(file){
   var gk=localStorage.getItem(GK),ak=localStorage.getItem(AK);
   if(!gk&&!ak){showApi();throw new Error('API 키 없음 - 🔑 설정에서 Gemini API 키를 등록하면 자동 인식됩니다')}
   var isPDF=file.type==='application/pdf'||file.name.toLowerCase().endsWith('.pdf');
-  var fd;
-  var textWasTooShort=(!pdfText||pdfText.trim().length<=10);
-  if(isPDF&&textWasTooShort&&window.pdfjsLib){
-    // ★ PDF 텍스트 추출 불가 → 캔버스 이미지로 렌더링 후 AI OCR (폰트 인코딩 우회)
-    console.log('[SMART] '+fname+' → PDF 텍스트 추출 불가, 캔버스 렌더링으로 전환...');
+  var fd,txt='';
+  // ★ 1차: 원본 PDF를 Gemini에 직접 전송 (PDF 네이티브 지원)
+  if(isPDF&&gk){
+    console.log('[SMART] '+fname+' → 원본 PDF Gemini 전송...');
+    var rawB64=await new Promise(function(res){var r=new FileReader();r.onload=function(ev){res(ev.target.result.split(',')[1])};r.readAsDataURL(file)});
+    try{txt=await geminiOCR(rawB64,'application/pdf',SMART_PROMPT)}catch(ge){console.warn('[OCR] Gemini PDF:',ge.message)}
+    if(txt){var j=extractJSON(txt);if(j&&j.docType&&j.docType!=='unknown'){console.log('[SMART] '+fname+' Gemini PDF OK:',j.docType);return j}}
+  }
+  // ★ 2차: 원본 PDF 실패 → 캔버스 이미지로 렌더링 후 Gemini 재시도
+  if(isPDF&&gk&&window.pdfjsLib){
+    console.log('[SMART] '+fname+' → 캔버스 렌더링으로 재시도...');
     try{
       var buf2=await file.arrayBuffer();
       var pdf2=await pdfjsLib.getDocument({data:buf2,cMapUrl:'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',cMapPacked:true}).promise;
-      var cvPages=[],totalH2=0,maxW2=0,sc2=2,sep2=40;
-      for(var pi=1;pi<=Math.min(pdf2.numPages,3);pi++){
-        var pg2=await pdf2.getPage(pi);var vp2=pg2.getViewport({scale:sc2});
-        var cv2=document.createElement('canvas');cv2.width=vp2.width;cv2.height=vp2.height;
-        await pg2.render({canvasContext:cv2.getContext('2d'),viewport:vp2}).promise;
-        cvPages.push(cv2);totalH2+=vp2.height+(pi<pdf2.numPages?sep2:0);maxW2=Math.max(maxW2,vp2.width);
-      }
-      var merged2=document.createElement('canvas');merged2.width=maxW2;merged2.height=totalH2;
-      var mctx=merged2.getContext('2d');mctx.fillStyle='#fff';mctx.fillRect(0,0,maxW2,totalH2);
-      var cy=0;cvPages.forEach(function(cv,idx){if(idx>0)cy+=sep2;mctx.drawImage(cv,0,cy);cy+=cv.height});
-      var imgB64=merged2.toDataURL('image/png').split(',')[1];
-      fd={b64:imgB64,mt:'image/png',preview:merged2.toDataURL('image/png')};
-      console.log('[SMART] '+fname+' → 캔버스 PNG 생성 완료 ('+imgB64.length+' chars)');
-    }catch(renderErr){
-      console.warn('[SMART] 캔버스 렌더링 실패:',renderErr.message);
-      var rawB64=await new Promise(function(res){var r=new FileReader();r.onload=function(ev){res(ev.target.result.split(',')[1])};r.readAsDataURL(file)});
-      fd={b64:rawB64,mt:'application/pdf',preview:null};
-    }
-  }else if(isPDF){
-    var rawB64=await new Promise(function(res){var r=new FileReader();r.onload=function(ev){res(ev.target.result.split(',')[1])};r.readAsDataURL(file)});
-    fd={b64:rawB64,mt:'application/pdf',preview:null};
-    console.log('[SMART] '+fname+' → 원본 PDF base64 전송 ('+rawB64.length+' chars)');
-  }else{
-    fd=await fileToBase64(file);
-  }
-  var txt='';
-  if(gk){try{txt=await geminiOCR(fd.b64,fd.mt,SMART_PROMPT)}catch(ge){console.warn('[OCR] Gemini:',ge.message)}}
-  if(txt){var j=extractJSON(txt);if(j&&j.docType&&j.docType!=='unknown'){console.log('[SMART] '+fname+' Gemini OK:',j.docType);return j}}
-  // Gemini가 raw PDF로 실패했으면 캔버스 이미지로 재시도
-  if(gk&&isPDF&&fd.mt==='application/pdf'){
-    console.log('[SMART] '+fname+' → Gemini raw PDF 실패, 캔버스 이미지로 재시도...');
-    try{
-      var buf3=await file.arrayBuffer();
-      var pdf3=await pdfjsLib.getDocument({data:buf3,cMapUrl:'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',cMapPacked:true}).promise;
-      var pg3=await pdf3.getPage(1);var vp3=pg3.getViewport({scale:2});
-      var cv3=document.createElement('canvas');cv3.width=vp3.width;cv3.height=vp3.height;
-      await pg3.render({canvasContext:cv3.getContext('2d'),viewport:vp3}).promise;
-      var ib3=cv3.toDataURL('image/png').split(',')[1];
-      try{txt=await geminiOCR(ib3,'image/png',SMART_PROMPT)}catch(ge2){console.warn('[OCR] Gemini canvas retry:',ge2.message)}
+      var pg2=await pdf2.getPage(1);var vp2=pg2.getViewport({scale:2.5});
+      var cv2=document.createElement('canvas');cv2.width=vp2.width;cv2.height=vp2.height;
+      await pg2.render({canvasContext:cv2.getContext('2d'),viewport:vp2}).promise;
+      var imgB64=cv2.toDataURL('image/jpeg',0.95).split(',')[1];
+      console.log('[SMART] '+fname+' → 캔버스 JPEG 생성 ('+imgB64.length+' chars)');
+      try{txt=await geminiOCR(imgB64,'image/jpeg',SMART_PROMPT)}catch(ge2){console.warn('[OCR] Gemini canvas:',ge2.message)}
       if(txt){var j2=extractJSON(txt);if(j2&&j2.docType&&j2.docType!=='unknown'){console.log('[SMART] '+fname+' Gemini canvas OK:',j2.docType);return j2}}
-    }catch(re3){console.warn('[SMART] canvas retry fail:',re3.message)}
+    }catch(renderErr){console.warn('[SMART] 캔버스 렌더링 실패:',renderErr.message)}
   }
-  // Gemini 실패/unknown → Claude API 시도
+  // ★ 3차: Claude API 시도
   if(ak){
+    if(!fd){
+      if(isPDF){
+        var rawB64c=await new Promise(function(res){var r=new FileReader();r.onload=function(ev){res(ev.target.result.split(',')[1])};r.readAsDataURL(file)});
+        fd={b64:rawB64c,mt:'application/pdf'};
+      }else{fd=await fileToBase64(file)}
+    }
     var contentType=fd.mt==='application/pdf'?'document':'image';
     var r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':ak,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
       body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:2000,messages:[{role:'user',content:[{type:contentType,source:{type:'base64',media_type:fd.mt,data:fd.b64}},{type:'text',text:SMART_PROMPT}]}]})});
     if(r.ok){var data=await r.json();txt=data.content?.[0]?.text||''}
+  }
+  // 이미지 파일 (비PDF) → Gemini
+  if(!isPDF&&gk){
+    fd=await fileToBase64(file);
+    try{txt=await geminiOCR(fd.b64,fd.mt,SMART_PROMPT)}catch(ge){console.warn('[OCR] Gemini img:',ge.message)}
+    if(txt){var j3=extractJSON(txt);if(j3&&j3.docType&&j3.docType!=='unknown')return j3}
   }
   console.log('[SMART] '+fname+' OCR응답:',txt?txt.substring(0,200):'(없음)');
   return extractJSON(txt);
