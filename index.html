@@ -444,10 +444,11 @@ function rLab(){
   if(!D[Y])D[Y]={};
   if(!D[Y][M])D[Y][M]={};
   const d=D[Y][M];
-  // 고스트 엔트리 정리 (합계행/소계 등)
-  if(d.staff){d.staff=d.staff.filter(function(s){return s.name&&!s.name.match(/합계|소계|사업소득합|급여대장합|총계/)})}
-  // 기존 데이터 마이그레이션: salary=차인지급액, ded=0
-  if(d.staff){d.staff.forEach(function(s){if(s.ded&&s.ded!==0){var nv=s.net>0?s.net:(s.salary>0?s.salary:0);s.salary=nv;s.net=nv;s.ded=0}})}
+  // 고스트 엔트리 정리 + 데이터 마이그레이션 (변경시 자동저장)
+  var _migrated=false;
+  if(d.staff){var _before=d.staff.length;d.staff=d.staff.filter(function(s){return s.name&&!s.name.match(/합계|소계|사업소득합|급여대장합|총계/)});if(d.staff.length!==_before)_migrated=true}
+  if(d.staff){d.staff.forEach(function(s){if(s.ded&&s.ded!==0){var nv=s.net>0?s.net:(s.salary>0?s.salary:0);s.salary=nv;s.net=nv;s.ded=0;_migrated=true}})}
+  if(_migrated){recalcAll(d);sv()}
   const staff=d.staff||[];
   const tN=staff.reduce((a,s)=>a+(s.net||s.salary||0),0);
   // 4대보험 동적 항목
