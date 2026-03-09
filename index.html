@@ -596,8 +596,11 @@ function rLab(){
 
   h+='</div>';
 
-  // ⑦ 저장 버튼
-  h+='<button class="btn-sv" onclick="saveLabor()" style="margin-top:16px">💾 인건비 저장</button>';
+  // ⑦ 저장 + 월 초기화 버튼
+  h+='<div style="display:flex;gap:12px;margin-top:16px">';
+  h+='<button class="btn-sv" onclick="saveLabor()" style="flex:1">💾 인건비 저장</button>';
+  h+='<button onclick="resetMonth()" style="flex:none;padding:14px 24px;border-radius:12px;border:2px solid var(--red);background:var(--red-bg);color:var(--red);font-size:14px;font-weight:800;cursor:pointer;font-family:var(--sans);transition:.15s" onmouseover="this.style.background=\'var(--red)\';this.style.color=\'#fff\'" onmouseout="this.style.background=\'var(--red-bg)\';this.style.color=\'var(--red)\'">🗑 '+M+'월 초기화</button>';
+  h+='</div>';
 
   h+='</div>';
   $('#ct').innerHTML=h;
@@ -607,6 +610,16 @@ function rLab(){
   setupDZ('dz-ins',function(f){universalOCR([f],'ins')},function(fs){universalOCR(fs,'ins')});
   setupDZ('dz-tax',function(f){universalOCR([f],'tax')},function(fs){universalOCR(fs,'tax')});
   setupDZ('dz-acct',function(f){universalOCR([f],'acct')},function(fs){universalOCR(fs,'acct')});
+}
+
+// ═══ 월별 초기화 ═══
+function resetMonth(){
+  if(!confirm(Y+'년 '+M+'월 인건비 데이터를 모두 초기화합니다.\n\n직원, 4대보험, 세금, 납부서, 송금계좌 전부 삭제됩니다.\n\n정말 초기화하시겠습니까?'))return;
+  if(!confirm('⚠️ 최종 확인: 복구할 수 없습니다.\n\n'+Y+'년 '+M+'월 데이터를 삭제합니다.'))return;
+  if(!D[Y])D[Y]={};
+  D[Y][M]={staff:[],insItems:[],taxItems:[],taxItems2:[],taxPay:{},totalSalary:0,totalInsurance:0,totalTax:0,totalNet:0,laborCost:0};
+  sv();rM();rLab();
+  toast('🗑 '+Y+'년 '+M+'월 초기화 완료');
 }
 
 // ═══ 세금 납부서 ═══
